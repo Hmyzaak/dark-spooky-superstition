@@ -1,0 +1,1 @@
+"""Moduly prvního AI agenta."""

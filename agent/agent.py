@@ -1,11 +1,25 @@
+"""Řídicí logika AI agenta a jeho rozhodovací cyklus."""
+
 import json
 from dataclasses import asdict, dataclass
-from typing import Any
+from typing import Any, Protocol
 
 from agent.llm_client import LLMError, OllamaClient
 from agent.memory import AgentMemory
 from agent.tools import TOOL_SCHEMAS, execute_tool
 from config import MAX_AGENT_STEPS, SYSTEM_PROMPT
+
+
+class LLMClient(Protocol):
+    """Rozhraní klienta, který komunikuje s jazykovým modelem."""
+
+    def chat(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """Odešle konverzaci modelu a vrátí jeho odpověď."""
+        ...
 
 
 @dataclass
@@ -21,9 +35,14 @@ class AgentResult:
 class AIAgent:
     """Základní AI agent s podporou nástrojů a paměti."""
 
-    def __init__(self) -> None:
-        self.llm = OllamaClient()
-        self.memory = AgentMemory()
+    def __init__(
+        self,
+        llm_client: LLMClient | None = None,
+        memory: AgentMemory | None = None,
+    ) -> None:
+        # Závislosti lze vložit zvenčí; výchozí chování aplikace zůstává stejné.
+        self.llm = llm_client if llm_client is not None else OllamaClient()
+        self.memory = memory if memory is not None else AgentMemory()
 
     def run(self, user_input: str) -> AgentResult:
         """Zpracuje požadavek uživatele prostřednictvím Agent Loop."""
@@ -36,6 +55,7 @@ class AIAgent:
                 error="Požadavek nesmí být prázdný.",
             )
 
+        clean_input = user_input.strip()
         messages: list[dict[str, Any]] = [
             {
                 "role": "system",
@@ -44,7 +64,7 @@ class AIAgent:
             *self.memory.get_history(),
             {
                 "role": "user",
-                "content": user_input.strip(),
+                "content": clean_input,
             },
         ]
 
@@ -66,19 +86,39 @@ class AIAgent:
                     error=str(exc),
                 )
 
-                self._save_conversation(user_input, result.answer)
+                self._save_conversation(clean_input, result.answer)
                 return result
 
-            assistant_message = response["message"]
-            requested_tools = assistant_message.get("tool_calls", [])
+            assistant_message = response.get("message")
+            if not isinstance(assistant_message, dict):
+                result = AgentResult(
+                    status="error",
+                    answer="Jazykový model vrátil neplatnou odpověď.",
+                    tool_calls=tool_calls_count,
+                    error="Odpověď neobsahuje platný objekt message.",
+                )
+                self._save_conversation(clean_input, result.answer)
+                return result
 
             # Uložíme kompletní odpověď modelu včetně požadavků na nástroje.
             messages.append(assistant_message)
 
-            # Model již nechce použít žádný nástroj.
-            if not requested_tools:
-                answer = assistant_message.get("content", "").strip()
+            # Získá seznam požadovaných nástrojů.
+            requested_tools = assistant_message.get("tool_calls", [])
+            if not isinstance(requested_tools, list):
+                result = AgentResult(
+                    status="error",
+                    answer="Jazykový model vrátil neplatný seznam požadavků na nástroje.",
+                    tool_calls=tool_calls_count,
+                    error="Pole tool_calls musí být seznam.",
+                )
+                self._save_conversation(clean_input, result.answer)
+                return result
 
+            # Model již nechce použít žádný nástroj. Považujeme jeho zprávu za finální odpověď.
+            if not requested_tools:
+                content = assistant_message.get("content", "")
+                answer = content.strip() if isinstance(content, str) else ""
                 if not answer:
                     answer = "Model vrátil prázdnou odpověď."
 
@@ -91,19 +131,33 @@ class AIAgent:
                 self._save_conversation(user_input, answer)
                 return result
 
-            # Vykonání požadovaných nástrojů.
+            # Vykonání požadovaných nástrojů a přidání jejich výsledků do kontextu.
             for tool_call in requested_tools:
-                function = tool_call.get("function", {})
-                name = function.get("name")
-                arguments = function.get("arguments", {})
+                name: str | None = None
 
-                if isinstance(arguments, str):
-                    try:
-                        arguments = json.loads(arguments)
-                    except json.JSONDecodeError:
+                if isinstance(tool_call, dict):
+                    function = tool_call.get("function", {})
+                    if isinstance(function, dict):
+                        name = function.get("name")
+                        arguments = function.get("arguments", {})
+                    else:
                         arguments = None
 
-                tool_result = execute_tool(name, arguments)
+                    # Některé klienty předávají argumenty jako JSON text,
+                    # jiné (včetně běžné odpovědi Ollama) jako slovník.
+                    if isinstance(arguments, str):
+                        try:
+                            arguments = json.loads(arguments)
+                        except json.JSONDecodeError:
+                            arguments = None
+
+                    tool_result = execute_tool(name, arguments)
+                else:
+                    tool_result = json.dumps(
+                        {"error": "Neplatný požadavek na nástroj."},
+                        ensure_ascii=False,
+                    )
+
                 tool_calls_count += 1
 
                 messages.append(
@@ -130,7 +184,7 @@ class AIAgent:
         user_input: str,
         answer: str,
     ) -> None:
-        """Uloží dokončenou konverzaci."""
+        """Uloží uživatelský požadavek a výslednou odpověď do paměti."""
 
         self.memory.save_message("user", user_input)
         self.memory.save_message("assistant", answer)

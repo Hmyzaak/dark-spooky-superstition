@@ -1,3 +1,6 @@
+# agent/tools.py
+"""Definice, registrace a bezpečné vykonávání nástrojů AI agenta."""
+
 import json
 import operator
 from pathlib import Path
@@ -8,27 +11,28 @@ from config import MAX_FILE_SIZE, WORKSPACE_DIR
 
 def calculator(
     operation: str,
-    a: float,
-    b: float,
+    a: int | float,
+    b: int | float,
 ) -> float:
     """Provede základní matematickou operaci."""
 
-    operations: dict[str, Callable[[float, float], float]] = {
+    operations: dict[str, Callable[..., int | float]] = {
         "add": operator.add,
         "subtract": operator.sub,
         "multiply": operator.mul,
         "divide": operator.truediv,
     }
 
-    if operation not in operations:
+    if not isinstance(operation, str) or operation not in operations:
         raise ValueError("Nepodporovaná matematická operace.")
 
     if not all(
         isinstance(value, (int, float))
         and not isinstance(value, bool)
+        and -1e100 <= value <= 1e100
         for value in (a, b)
     ):
-        raise ValueError("Argumenty musí být čísla.")
+        raise ValueError("Argumenty musí být platná čísla v povoleném rozsahu.")
 
     if operation == "divide" and b == 0:
         raise ValueError("Dělení nulou není povoleno.")
@@ -38,7 +42,7 @@ def calculator(
     if not (-1e100 < result < 1e100):
         raise ValueError("Výsledek je mimo povolený rozsah.")
 
-    return result
+    return float(result)
 
 
 def _resolve_workspace_path(filename: str) -> Path:
@@ -47,25 +51,45 @@ def _resolve_workspace_path(filename: str) -> Path:
     if not isinstance(filename, str) or not filename.strip():
         raise ValueError("Název souboru není platný.")
 
-    workspace = WORKSPACE_DIR.resolve()
-    target = (workspace / filename).resolve()
+    relative_path = Path(filename)
 
-    if not target.is_relative_to(workspace):
+    # Povolujeme pouze relativní cesty bez průchodu do nadřazených adresářů.
+    if relative_path.is_absolute() or relative_path.drive:
+        raise PermissionError("Absolutní cesty nejsou povoleny.")
+
+    if ".." in relative_path.parts:
         raise PermissionError("Přístup mimo workspace není povolen.")
 
-    return target
+    workspace = WORKSPACE_DIR.resolve()
+    target = workspace / relative_path
+
+    # Kontrolujeme symbolické odkazy ještě před jejich rozřešením.
+    current_path = workspace
+
+    for part in relative_path.parts:
+        current_path = current_path / part
+
+        if current_path.is_symlink():
+            raise PermissionError("Symbolické odkazy nejsou povoleny.")
+
+    resolved_target = target.resolve()
+
+    if not resolved_target.is_relative_to(workspace):
+        raise PermissionError("Přístup mimo workspace není povolen.")
+
+    return resolved_target
 
 
 def list_files() -> list[str]:
-    """Vrátí seznam souborů v pracovním adresáři."""
+    """Vrátí seznam běžných souborů v pracovním adresáři."""
 
-    WORKSPACE_DIR.mkdir(parents=True, exist_ok=True)
+    workspace = WORKSPACE_DIR.resolve()
+    workspace.mkdir(parents=True, exist_ok=True)
 
     return sorted(
-        path.relative_to(WORKSPACE_DIR).as_posix()
-        for path in WORKSPACE_DIR.rglob("*")
-        if path.is_file()
-        and not path.is_symlink()
+        path.relative_to(workspace).as_posix()
+        for path in workspace.rglob("*")
+        if path.is_file() and not path.is_symlink()
     )
 
 
@@ -74,7 +98,7 @@ def read_file(filename: str) -> str:
 
     path = _resolve_workspace_path(filename)
 
-    if path.is_symlink() or not path.is_file():
+    if not path.is_file():
         raise FileNotFoundError("Soubor nebyl nalezen.")
 
     if path.stat().st_size > MAX_FILE_SIZE:
@@ -95,7 +119,7 @@ AVAILABLE_TOOLS: dict[str, Callable[..., Any]] = {
 
 
 # Popis nástrojů předávaný jazykovému modelu.
-TOOL_SCHEMAS = [
+TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
@@ -106,12 +130,7 @@ TOOL_SCHEMAS = [
                 "properties": {
                     "operation": {
                         "type": "string",
-                        "enum": [
-                            "add",
-                            "subtract",
-                            "multiply",
-                            "divide",
-                        ],
+                        "enum": ["add", "subtract", "multiply", "divide"],
                     },
                     "a": {"type": "number"},
                     "b": {"type": "number"},
@@ -152,9 +171,10 @@ TOOL_SCHEMAS = [
 
 
 def execute_tool(name: str, arguments: dict[str, Any]) -> str:
-    """Ověří a vykoná požadovaný nástroj."""
+    """Ověří a vykoná požadovaný nástroj. Jediné místo, které převádí chyby vykonávání nástrojů na JSON - neukončí
+    tak běh agenta, ale pošle mu chybovou zprávu, na jejímž základě může agent rozhodnout, co dál."""
 
-    if name not in AVAILABLE_TOOLS:
+    if not isinstance(name, str) or name not in AVAILABLE_TOOLS:
         return json.dumps(
             {"error": "Neznámý nástroj."},
             ensure_ascii=False,
@@ -175,7 +195,7 @@ def execute_tool(name: str, arguments: dict[str, Any]) -> str:
             allow_nan=False,
         )
 
-    except (TypeError, ValueError, OSError, PermissionError) as exc:
+    except (TypeError, ValueError, OSError, OverflowError) as exc:
         return json.dumps(
             {"error": str(exc)},
             ensure_ascii=False,

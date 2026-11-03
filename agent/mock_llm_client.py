@@ -1,3 +1,4 @@
+# agent/mock_llm_client.py
 """Deterministický simulátor jazykového modelu pro testování agenta."""
 
 from collections import deque

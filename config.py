@@ -1,33 +1,29 @@
+"""Centrální konfigurace aplikace AI agenta."""
+
+import os
 from pathlib import Path
 
 
-# Kořenový adresář projektu.
 BASE_DIR = Path(__file__).resolve().parent
-
-# Adresář, ve kterém může agent pracovat se soubory.
 WORKSPACE_DIR = BASE_DIR / "workspace"
-
-# Databáze historie konverzace.
 DATABASE_PATH = BASE_DIR / "agent_memory.db"
 
-# Ollama API.
-OLLAMA_URL = "http://localhost:11434/api/chat"
+# Výchozí produkční poskytovatel je Groq; Ollama zůstává lokální alternativou.
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq").strip().lower()
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
 
-# Název lokálního modelu.
+OLLAMA_URL = "http://localhost:11434/api/chat"
 MODEL_NAME = "qwen3:4b"
 
-# Maximální počet rozhodovacích cyklů.
 MAX_AGENT_STEPS = 8
-
-# Počet zpráv načítaných z předchozí historie.
+MAX_TOOL_CALLS = 12
 MAX_HISTORY_MESSAGES = 12
-
-# Maximální velikost načítaného souboru.
 MAX_FILE_SIZE = 100_000
 
-# System Prompt.
 SYSTEM_PROMPT = """
-Jsi užitečný lokální AI asistent.
+Jsi užitečný AI asistent.
 
 Tvým úkolem je pomáhat uživateli s běžnými úkoly,
 výpočty a analýzou textových souborů.
@@ -48,4 +44,4 @@ Pravidla:
 7. Pokud nemáš dostatek informací, přiznej to.
 8. Nepředstírej, že jsi provedl operaci, kterou
    jsi ve skutečnosti neprovedl.
-"""
+""".strip()

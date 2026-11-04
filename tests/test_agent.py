@@ -1,47 +1,44 @@
-# tests/test_agent.py
-"""Testy hlavního rozhodovacího cyklu AI agenta."""
+"""Testy agentního cyklu nad provider-neutrálním datovým kontraktem."""
 
+import json
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
-from agent.agent import AIAgent
+from agent.agent import AIAgent, AgentResult, to_json
 from agent.llm_client import LLMError
 from agent.memory import AgentMemory
 from agent.mock_llm_client import MockLLMClient
+from agent.models import ChatMessage, LLMRequest, LLMResponse, ToolCall
 from config import MAX_AGENT_STEPS
 
 
 class TestAIAgent(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
-        database_path = Path(self.temp_dir.name) / "test_memory.db"
-        self.memory = AgentMemory(database_path)
+        self.memory = AgentMemory(Path(self.temp_dir.name) / "memory.db")
 
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
 
-    def test_returns_direct_model_answer(self) -> None:
-        client = MockLLMClient(
-            [{"message": {"role": "assistant", "content": "Ahoj!"}}]
-        )
-        agent = AIAgent(llm_client=client, memory=self.memory)
+    def make_agent(self, responses):
+        client = MockLLMClient(responses)
+        return AIAgent(llm_client=client, memory=self.memory), client
 
+    def test_returns_direct_model_answer(self) -> None:
+        agent, client = self.make_agent([LLMResponse(content="Ahoj!")])
         result = agent.run("Pozdrav mě.")
 
         self.assertEqual(result.status, "completed")
         self.assertEqual(result.answer, "Ahoj!")
         self.assertEqual(result.tool_calls, 0)
         self.assertEqual(len(client.calls), 1)
+        self.assertIsInstance(client.calls[0], LLMRequest)
+        self.assertEqual(client.calls[0].messages[-1].content, "Pozdrav mě.")
 
     def test_handles_empty_final_answer(self) -> None:
-        """Ověří, že prázdná odpověď modelu není považována za úspěch."""
-
-        client = MockLLMClient(
-            [{"message": {"role": "assistant", "content": ""}}]
-        )
-        agent = AIAgent(llm_client=client, memory=self.memory)
-
+        agent, _ = self.make_agent([LLMResponse(content="  ")])
         result = agent.run("Odpověz na testovací otázku.")
 
         self.assertEqual(result.status, "error")
@@ -49,173 +46,71 @@ class TestAIAgent(unittest.TestCase):
         self.assertIsNotNone(result.error)
 
     def test_executes_tool_and_returns_follow_up_answer(self) -> None:
-        client = MockLLMClient(
-            [
-                {
-                    "message": {
-                        "role": "assistant",
-                        "content": "",
-                        "tool_calls": [
-                            {
-                                "function": {
-                                    "name": "calculator",
-                                    "arguments": {
-                                        "operation": "multiply",
-                                        "a": 125,
-                                        "b": 8,
-                                    },
-                                }
-                            }
-                        ],
-                    }
-                },
-                {
-                    "message": {
-                        "role": "assistant",
-                        "content": "Výsledek je 1000.",
-                    }
-                },
-            ]
+        call = ToolCall(
+            id="call-1",
+            name="calculator",
+            arguments={"operation": "multiply", "a": 125, "b": 8},
         )
-        agent = AIAgent(llm_client=client, memory=self.memory)
-
+        agent, client = self.make_agent(
+            [LLMResponse(tool_calls=[call]), LLMResponse(content="Výsledek je 1000.")]
+        )
         result = agent.run("Kolik je 125 krát 8?")
 
         self.assertEqual(result.status, "completed")
         self.assertEqual(result.answer, "Výsledek je 1000.")
         self.assertEqual(result.tool_calls, 1)
         self.assertEqual(len(client.calls), 2)
-        second_call_messages = client.calls[1]["messages"]
-        self.assertTrue(any(message["role"] == "tool" for message in second_call_messages))
-
-    def test_executes_multiple_tools_before_follow_up_answer(self) -> None:
-        """
-        Ověří zpracování více požadavků na nástroje v jednom cyklu Agent Loop.
-
-        Simulovaný LLM požaduje dvě operace kalkulačky:
-        1. Sečtení čísel 2 + 3.
-        2. Vynásobení čísel 4 * 5.
-
-        Agent musí:
-        - provést oba požadované nástroje,
-        - zaznamenat oba výsledky do konverzačního kontextu,
-        - předat aktualizovaný kontext zpět jazykovému modelu,
-        - přijmout jeho finální odpověď.
-
-        Test ověřuje také počet volání LLM a počet provedených nástrojů.
-        """
-
-        # Připravíme dvě simulované odpovědi jazykového modelu.
-        responses = [
-            {
-                "message": {
-                    "role": "assistant",
-                    "content": "",
-                    "tool_calls": [
-                        {
-                            "function": {
-                                "name": "calculator",
-                                "arguments": {
-                                    "operation": "add",
-                                    "a": 2,
-                                    "b": 3,
-                                },
-                            }
-                        },
-                        {
-                            "function": {
-                                "name": "calculator",
-                                "arguments": {
-                                    "operation": "multiply",
-                                    "a": 4,
-                                    "b": 5,
-                                },
-                            }
-                        },
-                    ],
-                }
-            },
-            {
-                "message": {
-                    "role": "assistant",
-                    "content": "Výsledky jsou 5 a 20.",
-                }
-            },
-        ]
-
-        # Vytvoříme simulovaný LLM klient a instanci agenta.
-        client = MockLLMClient(responses)
-        agent = AIAgent(llm_client=client, memory=self.memory)
-
-        # Spustíme agenta s požadavkem na dvě matematické operace.
-        result = agent.run(
-            "Sečti 2 + 3 a zároveň vynásob 4 * 5."
-        )
-
-        # Ověříme správné dokončení úkolu.
-        self.assertEqual(result.status, "completed")
-        self.assertEqual(result.answer, "Výsledky jsou 5 a 20.")
-
-        # Agent musí zaznamenat obě provedená volání nástrojů.
-        self.assertEqual(result.tool_calls, 2)
-
-        # LLM musí být zavolán dvakrát:
-        # poprvé pro rozhodnutí a podruhé pro finální odpověď.
-        self.assertEqual(len(client.calls), 2)
-
-        # Zkontrolujeme kontext předaný LLM při druhém volání.
-        second_call_messages = client.calls[1]["messages"]
-
-        # Z kontextu vybereme všechny zprávy obsahující výsledky nástrojů.
         tool_messages = [
-            message
-            for message in second_call_messages
-            if message["role"] == "tool"
+            message for message in client.calls[1].messages if message.role == "tool"
         ]
+        self.assertEqual(len(tool_messages), 1)
+        self.assertEqual(tool_messages[0].tool_call_id, "call-1")
+        self.assertEqual(tool_messages[0].name, "calculator")
+        self.assertEqual(json.loads(tool_messages[0].content)["result"], 1000.0)
 
-        # Oba výsledky musí být součástí kontextu.
-        self.assertEqual(len(tool_messages), 2)
-
-        # Ověříme, že oba požadavky byly zpracovány kalkulačkou.
-        self.assertTrue(
-            all(
-                message["tool_name"] == "calculator"
-                for message in tool_messages
-            )
+    def test_executes_multiple_tools_in_one_cycle(self) -> None:
+        calls = [
+            ToolCall("call-1", "calculator", {"operation": "add", "a": 2, "b": 3}),
+            ToolCall(
+                "call-2", "calculator", {"operation": "multiply", "a": 4, "b": 5}
+            ),
+        ]
+        agent, client = self.make_agent(
+            [LLMResponse(tool_calls=calls), LLMResponse(content="Výsledky jsou 5 a 20.")]
         )
-
-    def test_handles_tool_arguments_as_json_text(self) -> None:
-        client = MockLLMClient(
-            [
-                {
-                    "message": {
-                        "role": "assistant",
-                        "content": "",
-                        "tool_calls": [
-                            {
-                                "function": {
-                                    "name": "calculator",
-                                    "arguments": '{"operation":"add","a":2,"b":3}',
-                                }
-                            }
-                        ],
-                    }
-                },
-                {"message": {"role": "assistant", "content": "Výsledek je 5."}},
-            ]
-        )
-        agent = AIAgent(llm_client=client, memory=self.memory)
-
-        result = agent.run("Kolik je 2 + 3?")
+        result = agent.run("Sečti 2 + 3 a vynásob 4 * 5.")
 
         self.assertEqual(result.status, "completed")
-        self.assertEqual(result.tool_calls, 1)
-        self.assertEqual(result.answer, "Výsledek je 5.")
+        self.assertEqual(result.tool_calls, 2)
+        self.assertEqual(len(client.calls), 2)
+        second_messages = client.calls[1].messages
+        self.assertEqual(
+            [message.tool_call_id for message in second_messages if message.role == "tool"],
+            ["call-1", "call-2"],
+        )
+        assistant_tool_messages = [
+            message
+            for message in second_messages
+            if message.role == "assistant" and message.tool_calls
+        ]
+        self.assertEqual(len(assistant_tool_messages), 1)
+        self.assertEqual(len(assistant_tool_messages[0].tool_calls), 2)
 
-    def test_rejects_empty_user_input(self) -> None:
-        client = MockLLMClient([])
-        agent = AIAgent(llm_client=client, memory=self.memory)
+    def test_invalid_tool_arguments_are_returned_as_tool_error(self) -> None:
+        call = ToolCall("call-1", "calculator", ["not", "a", "dict"])
+        agent, client = self.make_agent(
+            [LLMResponse(tool_calls=[call]), LLMResponse(content="Nástroj selhal.")]
+        )
+        result = agent.run("Vyzkoušej nástroj.")
 
+        self.assertEqual(result.status, "completed")
+        tool_message = next(
+            message for message in client.calls[1].messages if message.role == "tool"
+        )
+        self.assertIn("error", json.loads(tool_message.content))
+
+    def test_rejects_empty_user_input_without_calling_model(self) -> None:
+        agent, client = self.make_agent([])
         result = agent.run("   ")
 
         self.assertEqual(result.status, "error")
@@ -223,66 +118,74 @@ class TestAIAgent(unittest.TestCase):
 
     def test_handles_llm_error(self) -> None:
         class FailingClient:
-            def chat(self, messages, tools=None):
+            def chat(self, request):
                 raise LLMError("Simulovaná chyba spojení.")
 
         agent = AIAgent(llm_client=FailingClient(), memory=self.memory)
-
         result = agent.run("Test spojení")
 
         self.assertEqual(result.status, "error")
         self.assertIn("Simulovaná chyba spojení", result.error)
 
-    def test_handles_invalid_model_response(self) -> None:
-        client = MockLLMClient([{"unexpected": "structure"}])
-        agent = AIAgent(llm_client=client, memory=self.memory)
-
-        result = agent.run("Test neplatné odpovědi")
-
-        self.assertEqual(result.status, "error")
-        self.assertIn("message", result.error)
-
     def test_mock_client_reports_exhausted_responses(self) -> None:
         client = MockLLMClient([])
-
         with self.assertRaises(LLMError):
-            client.chat(messages=[])
+            client.chat(LLMRequest(messages=[]))
 
-    def test_stops_when_maximum_agent_steps_is_reached(self) -> None:
-        # Připravíme opakující se požadavek na použití kalkulačky.
-        responses = []
-
-        for _ in range(MAX_AGENT_STEPS):
-            responses.append(
-                {
-                    "message": {
-                        "role": "assistant",
-                        "content": "",
-                        "tool_calls": [
-                            {
-                                "function": {
-                                    "name": "calculator",
-                                    "arguments": {
-                                        "operation": "add",
-                                        "a": 1,
-                                        "b": 1,
-                                    },
-                                }
-                            }
-                        ],
-                    }
-                }
-            )
-
-        client = MockLLMClient(responses)
-        agent = AIAgent(llm_client=client, memory=self.memory)
-
+    def test_reaches_maximum_agent_steps(self) -> None:
+        repeated_call = ToolCall(
+            "call", "calculator", {"operation": "add", "a": 1, "b": 1}
+        )
+        agent, client = self.make_agent(
+            [LLMResponse(tool_calls=[repeated_call]) for _ in range(MAX_AGENT_STEPS)]
+        )
         result = agent.run("Opakovaně počítej 1 + 1.")
 
-        # Agent musí skončit po dosažení maximálního počtu cyklů.
-        self.assertEqual(result.status, "limit_reached")   # Agent správně rozpoznal dosažení limitu.
-        self.assertEqual(result.tool_calls, MAX_AGENT_STEPS)   # Agent provedl přesně povolený počet volání nástrojů.
-        self.assertEqual(len(client.calls), MAX_AGENT_STEPS)   # Agent nepřekročil povolený počet volání LLM.
+        self.assertEqual(result.status, "limit_reached")
+        self.assertEqual(result.tool_calls, MAX_AGENT_STEPS)
+        self.assertEqual(len(client.calls), MAX_AGENT_STEPS)
+
+    def test_reaches_maximum_tool_calls_even_in_single_batch(self) -> None:
+        from config import MAX_TOOL_CALLS
+
+        calls = [
+            ToolCall(
+                f"call-{index}",
+                "calculator",
+                {"operation": "add", "a": index, "b": 1},
+            )
+            for index in range(MAX_TOOL_CALLS + 3)
+        ]
+        agent, _ = self.make_agent([LLMResponse(tool_calls=calls)])
+        with patch("agent.agent.execute_tool", return_value='{"result": 1}') as execute:
+            result = agent.run("Proveď mnoho výpočtů.")
+
+        self.assertEqual(result.status, "limit_reached")
+        self.assertEqual(result.tool_calls, MAX_TOOL_CALLS)
+        self.assertEqual(execute.call_count, MAX_TOOL_CALLS)
+
+    def test_saves_only_user_and_final_assistant_messages(self) -> None:
+        agent, _ = self.make_agent([LLMResponse(content="Hotovo.")])
+        agent.run("Ulož tuto konverzaci.")
+
+        self.assertEqual(
+            self.memory.get_history(),
+            [
+                {"role": "user", "content": "Ulož tuto konverzaci."},
+                {"role": "assistant", "content": "Hotovo."},
+            ],
+        )
+
+    def test_to_json_serializes_agent_result(self) -> None:
+        serialized = json.loads(
+            to_json(AgentResult("completed", "V pořádku", 1))
+        )
+        self.assertEqual(serialized["status"], "completed")
+        self.assertEqual(serialized["tool_calls"], 1)
+
+    def test_missing_llm_client_is_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            AIAgent(llm_client=None, memory=self.memory)
 
 
 if __name__ == "__main__":

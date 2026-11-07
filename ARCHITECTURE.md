@@ -170,7 +170,8 @@ Konfigurované limity v `config.py`:
 | `MAX_AGENT_STEPS` | 8 | Maximální počet požadavků modelu v jednom běhu agenta. |
 | `MAX_TOOL_CALLS` | 12 | Maximální počet vykonaných volání nástrojů v jednom běhu. |
 | `MAX_HISTORY_MESSAGES` | 12 | Počet posledních zpráv načítaných z SQLite. |
-| `MAX_FILE_SIZE` | 100 000 bajtů | Maximální velikost souboru čteného nástrojem `read_file`. |
+| `MAX_FILE_SIZE` | 100 000 bajtů | Maximální počet bajtů načtených nástrojem `read_file`. |
+| `MAX_LIST_FILES` | 500 | Maximální počet položek vrácených nástrojem `list_files`. |
 
 Limity Agent Loop a volání nástrojů jsou nezávislé. Agent může skončit se stavem:
 
@@ -190,11 +191,11 @@ Podporuje operace `add`, `subtract`, `multiply` a `divide`. Kontroluje typ a roz
 
 ### `list_files`
 
-Vrací relativní cesty souborů v `workspace/`. Symbolické odkazy ve výpisu ignoruje.
+Vrací objekt obsahující relativní cesty souborů v `workspace/`, příznak `truncated` a použitý limit `max_results`. Vrací nejvýše `MAX_LIST_FILES` položek. Symbolické odkazy na soubory i adresáře ignoruje, aby výpis nepřecházel mimo pracovní prostor.
 
 ### `read_file`
 
-Čte textový soubor v UTF-8 z `workspace/`. Kontroluje relativní cestu, zakazuje absolutní cesty, průchod do nadřazeného adresáře a symbolické odkazy. Uplatňuje limit velikosti souboru.
+Čte textový soubor v UTF-8 z `workspace/`. Kontroluje relativní cestu, zakazuje absolutní cesty, průchod do nadřazeného adresáře a symbolické odkazy. Obsah načítá binárně nejvýše do `MAX_FILE_SIZE + 1` bajtů a překročení limitu odmítne. Na systémech podporujících `O_NOFOLLOW` navíc odmítne symbolický odkaz v poslední komponentě při samotném otevření souboru. Tato ochrana neřeší všechny možné závody při souběžné změně nadřazených adresářů jiným lokálním procesem.
 
 ### Registr a vykonání
 
@@ -209,6 +210,7 @@ Model pouze navrhuje volání nástroje. Samotné vykonání provádí Python ap
 `agent/memory.py` implementuje jednoduchou dlouhodobou paměť pomocí SQLite.
 
 - Databáze je `agent_memory.db` v kořenovém adresáři projektu.
+- Databáze a její SQLite journal/WAL soubory jsou ignorovány pomocí `.gitignore`, protože mohou obsahovat soukromou historii.
 - Tabulka `conversation` uchovává `id`, `role`, `content` a `created_at`.
 - Ukládají se pouze zprávy rolí `user` a `assistant`.
 - `get_history()` načítá posledních `MAX_HISTORY_MESSAGES` záznamů a vrací je chronologicky.

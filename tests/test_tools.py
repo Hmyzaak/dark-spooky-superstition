@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from agent.tools import calculator, execute_tool, read_file
+from agent.tools import calculator, execute_tool, list_files, read_file
 
 
 class TestCalculator(unittest.TestCase):
@@ -118,6 +118,68 @@ class TestFileAccess(unittest.TestCase):
             with patch("agent.tools.WORKSPACE_DIR", workspace):
                 with self.assertRaises(PermissionError):
                     read_file("link.txt")
+
+
+    def test_list_files_returns_relative_paths_and_truncation_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            (workspace / "b.txt").write_text("B", encoding="utf-8")
+            (workspace / "a.txt").write_text("A", encoding="utf-8")
+
+            with (
+                patch("agent.tools.WORKSPACE_DIR", workspace),
+                patch("agent.tools.MAX_LIST_FILES", 1),
+            ):
+                result = list_files()
+
+        self.assertEqual(result["files"], ["a.txt"])
+        self.assertTrue(result["truncated"])
+        self.assertEqual(result["max_results"], 1)
+
+    def test_execute_tool_serializes_list_files_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            (workspace / "example.txt").write_text("example", encoding="utf-8")
+
+            with patch("agent.tools.WORKSPACE_DIR", workspace):
+                result = execute_tool("list_files", {})
+
+        payload = json.loads(result)
+        self.assertEqual(payload["result"]["files"], ["example.txt"])
+        self.assertFalse(payload["result"]["truncated"])
+
+    def test_list_files_skips_symbolic_links(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            external_dir = root / "external"
+            external_dir.mkdir()
+            (external_dir / "secret.txt").write_text("secret", encoding="utf-8")
+
+            link = workspace / "external-link"
+            try:
+                link.symlink_to(external_dir, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                self.skipTest(
+                    "Vytváření symbolických odkazů není na tomto systému dostupné."
+                )
+
+            with patch("agent.tools.WORKSPACE_DIR", workspace):
+                result = list_files()
+
+        self.assertEqual(result["files"], [])
+        self.assertFalse(result["truncated"])
+
+    def test_read_file_rejects_non_regular_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            folder = workspace / "folder"
+            folder.mkdir()
+
+            with patch("agent.tools.WORKSPACE_DIR", workspace):
+                with self.assertRaises((ValueError, OSError)):
+                    read_file("folder")
 
     def test_file_size_limit_is_enforced(self):
         with tempfile.TemporaryDirectory() as directory:

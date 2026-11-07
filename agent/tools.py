@@ -2,11 +2,14 @@
 
 import json
 import operator
+import os
+import stat
+from heapq import nsmallest
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 from agent.models import ToolDefinition
-from config import MAX_FILE_SIZE, WORKSPACE_DIR
+from config import MAX_FILE_SIZE, MAX_LIST_FILES, WORKSPACE_DIR
 
 
 def calculator(operation: str, a: int | float, b: int | float) -> float:
@@ -61,28 +64,69 @@ def _resolve_workspace_path(filename: str) -> Path:
     return resolved_target
 
 
-def list_files() -> list[str]:
-    """Vrátí seznam běžných souborů v pracovním adresáři."""
+def list_files() -> dict[str, Any]:
+    """Vrátí omezený seznam souborů a informaci o případném zkrácení."""
 
     workspace = WORKSPACE_DIR.resolve()
     workspace.mkdir(parents=True, exist_ok=True)
-    return sorted(
-        path.relative_to(workspace).as_posix()
-        for path in workspace.rglob("*")
-        if path.is_file() and not path.is_symlink()
-    )
+
+    def iter_files() -> Iterator[str]:
+        # Symbolické odkazy na adresáře neprocházíme.
+        for current_dir, directory_names, file_names in os.walk(
+            workspace,
+            topdown=True,
+            followlinks=False,
+        ):
+            current_path = Path(current_dir)
+            directory_names[:] = sorted(
+                name
+                for name in directory_names
+                if not (current_path / name).is_symlink()
+            )
+
+            for name in sorted(file_names):
+                file_path = current_path / name
+                if file_path.is_symlink() or not file_path.is_file():
+                    continue
+                yield file_path.relative_to(workspace).as_posix()
+
+    # Udržujeme pouze MAX_LIST_FILES + 1 nejmenších položek, nikoliv celý seznam.
+    selected_files = nsmallest(MAX_LIST_FILES + 1, iter_files())
+    truncated = len(selected_files) > MAX_LIST_FILES
+
+    return {
+        "files": selected_files[:MAX_LIST_FILES],
+        "truncated": truncated,
+        "max_results": MAX_LIST_FILES,
+    }
 
 
 def read_file(filename: str) -> str:
-    """Bezpečně načte textový soubor z workspace."""
+    """Načte nejvýše MAX_FILE_SIZE bajtů z běžného UTF-8 souboru."""
 
     path = _resolve_workspace_path(filename)
-    if not path.is_file():
-        raise FileNotFoundError("Soubor nebyl nalezen.")
-    if path.stat().st_size > MAX_FILE_SIZE:
+
+    # O_NOFOLLOW odmítne symbolický odkaz v poslední cestové komponentě
+    # na systémech, které tento příznak podporují (typicky Linux/macOS).
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    file_descriptor = os.open(path, flags)
+
+    with os.fdopen(file_descriptor, "rb") as file:
+        file_info = os.fstat(file.fileno())
+
+        if not stat.S_ISREG(file_info.st_mode):
+            raise ValueError("Zadaná cesta neukazuje na běžný soubor.")
+
+        # Čteme maximálně o jeden bajt navíc, abychom spolehlivě poznali
+        # překročení limitu i v případě, že se soubor po kontrole změní.
+        content = file.read(MAX_FILE_SIZE + 1)
+
+    if len(content) > MAX_FILE_SIZE:
         raise ValueError("Soubor překračuje povolenou velikost.")
+
     try:
-        return path.read_text(encoding="utf-8")
+        return content.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise ValueError("Soubor není platný UTF-8 text.") from exc
 
@@ -113,7 +157,10 @@ TOOL_DEFINITIONS: list[ToolDefinition] = [
     ),
     ToolDefinition(
         name="list_files",
-        description="Vypíše soubory ve workspace.",
+        description=(
+            "Vypíše nejvýše 500 souborů ve workspace a oznámí, "
+            "zda byl seznam zkrácen."
+        ),
         parameters={"type": "object", "properties": {}},
     ),
     ToolDefinition(

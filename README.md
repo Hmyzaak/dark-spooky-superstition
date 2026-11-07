@@ -90,7 +90,9 @@ Agent má aktuálně k dispozici tři nástroje:
 | `list_files` | Výpis souborů v pracovním prostoru | „Vypiš dostupné soubory.“ |
 | `read_file` | Čtení textového souboru z pracovního prostoru | „Přečti example.txt.“ |
 
-Pracovní prostor je adresář `workspace/` v kořenové složce projektu. Čtení souborů je omezeno na tento adresář, odmítá absolutní cesty a cesty obsahující `..`, kontroluje symbolické odkazy a omezuje velikost souboru na 100 000 bajtů. Čtení je v UTF-8.
+Pracovní prostor je adresář `workspace/` v kořenové složce projektu. Čtení souborů je omezeno na tento adresář, odmítá absolutní cesty a cesty obsahující `..`, kontroluje symbolické odkazy a načte nejvýše 100 000 bajtů. Výpis souborů vrací nejvýše 500 položek a informuje, pokud byl seznam zkrácen. Čtení je v UTF-8.
+
+Lokální databáze `agent_memory.db` obsahuje historii konverzace. Je proto uvedena v `.gitignore` společně se soubory SQLite journal/WAL. Pokud už byla databáze dříve přidána do Gitu, samotné `.gitignore` ji z verzování neodstraní; lze ji přestat sledovat příkazem `git rm --cached agent_memory.db` (lokální soubor zůstane zachován).
 
 Agent nespouští libovolný Python kód ani příkazy operačního systému. Dostupné operace jsou omezené na nástroje registrované v `agent/tools.py`.
 
@@ -110,7 +112,7 @@ python -m compileall -q agent tests main.py config.py
 
 Testy používají `MockLLMClient` nebo simulované HTTP odpovědi. Nevyžadují skutečný API klíč ani běžící Ollama. Úspěšný běh automatických testů proto ověřuje především interní logiku a převody dat; sám o sobě nepotvrzuje dostupnost externí služby.
 
-Při přípravě této dokumentace bylo v dodaném projektovém archivu spuštěno 35 jednotkových testů; všechny prošly. Kompilace uvedeným příkazem také prošla. Ruční testy s Groq a soubory jsou popsány výše jako vývojářem provedené ověření.
+Při bezpečnostní revizi bylo po doplnění testů spuštěno 39 jednotkových testů; všechny prošly. Kompilace uvedeným příkazem také prošla. Testy používají dočasné soubory a simulované odpovědi; skutečné chování Groq a Ollama je nutné ověřovat samostatně.
 
 ## Struktura projektu
 

@@ -1,4 +1,4 @@
 Toto je ukázkový soubor pro prvního AI agenta.
 
 Projekt používá Python a lokální jazykový model
-prostřednictvím Ollama API.
+prostřednictvím Groq API.

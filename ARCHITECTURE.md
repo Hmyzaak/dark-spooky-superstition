@@ -115,7 +115,7 @@ Agent předá adaptéru `LLMRequest` a očekává normalizovaný `LLMResponse`. 
 
 ### Chyby komunikace
 
-`LLMError` je společná výjimka pro chyby komunikace s jazykovým modelem a neplatné odpovědi poskytovatele. Adaptéry zpracovávají HTTP chyby, síťové chyby, timeouty a chybná JSON data. Opakování požadavku je omezeno parametrem `max_retries`.
+`LLMError` je společná výjimka pro chyby komunikace s jazykovým modelem a neplatné odpovědi poskytovatele. Adaptéry zpracovávají HTTP chyby, síťové chyby typu `OSError`, timeouty a chybná JSON data. Opakování požadavku je omezeno parametrem `max_retries`. Agent navíc zachytává neočekávané výjimky cizího LLM klienta a kontroluje typ i základní strukturu `LLMResponse` před jejím zpracováním. Uživateli vrací obecnou zprávu, podrobnosti zapisuje přes `logging` do lokálního `agent.log`; tento soubor není verzován.
 
 ## 6. Tok jednoho požadavku
 
@@ -205,7 +205,7 @@ Vrací objekt obsahující relativní cesty souborů v `workspace/`, příznak `
 - `TOOL_DEFINITIONS` obsahuje provider-neutrální popisy a JSON Schema parametrů.
 - `execute_tool()` ověřuje název a typ argumentů, vykoná registrovanou funkci a vrací JSON text s klíčem `result` nebo `error`.
 
-Model pouze navrhuje volání nástroje. Samotné vykonání provádí Python aplikace podle pevného registru; model nemůže tímto rozhraním spouštět libovolné funkce.
+Model pouze navrhuje volání nástroje. Samotné vykonání provádí Python aplikace podle pevného registru; model nemůže tímto rozhraním spouštět libovolné funkce. Registr převádí očekávané chyby na JSON výsledek a neočekávané výjimky zaznamená do logu a nahradí bezpečnou chybovou zprávou. Agent má navíc ochrannou hranici kolem volání registru, aby neočekávaná chyba nástroje nepřerušila Agent Loop.
 
 ## 9. Paměť a historie
 
@@ -226,9 +226,9 @@ Současná paměť je jedna společná historie bez oddělení uživatelů nebo 
 
 ## 10. Testování
 
-- `tests/test_agent.py` ověřuje Agent Loop, přímou odpověď, volání jednoho i více nástrojů, limity, chybové stavy a ukládání historie.
-- `tests/test_llm_clients.py` ověřuje převod interních dat do formátů Groq/Ollama a parsování simulovaných odpovědí.
-- `tests/test_tools.py` ověřuje kalkulačku, registr nástrojů a omezení přístupu k souborům.
+- `tests/test_agent.py` ověřuje Agent Loop, přímou odpověď, volání jednoho i více nástrojů, limity, chybové stavy, validaci odpovědi LLM a ukládání historie.
+- `tests/test_llm_clients.py` ověřuje převod interních dat do formátů Groq/Ollama, parsování simulovaných odpovědí a převod síťových chyb na `LLMError`.
+- `tests/test_tools.py` ověřuje kalkulačku, registr nástrojů, bezpečné zpracování neočekávaných výjimek a omezení přístupu k souborům.
 
 `MockLLMClient` vrací předem připravené `LLMResponse`, zaznamenává požadavky a umožňuje testovat rozhodovací logiku bez skutečného modelu.
 
@@ -242,7 +242,8 @@ Automatické testy adaptérů používají simulované HTTP odpovědi. Nepotvrzu
 - Nejsou implementovány obecné shell příkazy ani vykonávání kódu generovaného modelem.
 - Validace cest a symlinků snižuje riziko neoprávněného přístupu, ale sama o sobě není úplným bezpečnostním auditem. Zejména je třeba mít na paměti možné závody mezi kontrolou cesty a otevřením souboru (TOCTOU).
 - Odpověď modelu může být věcně neúplná, i když nástroje proběhnou správně. Příklad: model provedl dva výpočty, ale ve finální odpovědi uvedl pouze druhý výsledek.
-- SQLite paměť je best-effort služba: chyba inicializace, čtení nebo zápisu neblokuje dokončení požadavku. Agent pokračuje bez historie a vrací `memory_warning`; technický detail je dostupný při zapnutém DEBUG logování.
+- SQLite paměť je best-effort služba: chyba inicializace, čtení nebo zápisu neblokuje dokončení požadavku. Agent pokračuje bez historie a vrací `memory_warning`; technický detail je dostupný při zapnutém logování.
+- Chyba LLM klienta vede k bezpečnému výsledku `error`; neočekávaná chyba nástroje je převedena na chybový JSON výsledek, takže model může rozhodnout, jak pokračovat. Technické detaily se zaznamenávají přes `logging` do lokálního `agent.log`.
 - Ukládání dvojice uživatelská zpráva + odpověď probíhá atomicky v jedné transakci. Pokud jedna část selže, transakce se vrátí zpět.
 
 ## 12. Možný další rozvoj

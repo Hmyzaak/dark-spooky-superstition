@@ -1,6 +1,7 @@
 """Definice, registrace a bezpečné vykonávání nástrojů AI agenta."""
 
 import json
+import logging
 import operator
 import os
 import stat
@@ -131,6 +132,9 @@ def read_file(filename: str) -> str:
         raise ValueError("Soubor není platný UTF-8 text.") from exc
 
 
+logger = logging.getLogger(__name__)
+
+
 AVAILABLE_TOOLS: dict[str, Callable[..., Any]] = {
     "calculator": calculator,
     "list_files": list_files,
@@ -197,3 +201,10 @@ def execute_tool(name: str, arguments: dict[str, Any]) -> str:
         )
     except (TypeError, ValueError, OSError, OverflowError) as exc:
         return json.dumps({"error": str(exc)}, ensure_ascii=False)
+    except Exception:
+        # Neočekávané chyby nepropouštíme do Agent Loop ani do kontextu LLM.
+        logger.exception("Neočekávaná chyba při vykonávání nástroje %s.", name)
+        return json.dumps(
+            {"error": "Nástroj selhal kvůli neočekávané interní chybě."},
+            ensure_ascii=False,
+        )

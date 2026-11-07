@@ -98,18 +98,14 @@ class TestAIAgent(unittest.TestCase):
         self.assertEqual(len(assistant_tool_messages), 1)
         self.assertEqual(len(assistant_tool_messages[0].tool_calls), 2)
 
-    def test_invalid_tool_arguments_are_returned_as_tool_error(self) -> None:
+    def test_rejects_tool_call_with_non_dictionary_arguments(self) -> None:
         call = ToolCall("call-1", "calculator", ["not", "a", "dict"])
-        agent, client = self.make_agent(
-            [LLMResponse(tool_calls=[call]), LLMResponse(content="Nástroj selhal.")]
-        )
+        agent, client = self.make_agent([LLMResponse(tool_calls=[call])])
         result = agent.run("Vyzkoušej nástroj.")
 
-        self.assertEqual(result.status, "completed")
-        tool_message = next(
-            message for message in client.calls[1].messages if message.role == "tool"
-        )
-        self.assertIn("error", json.loads(tool_message.content))
+        self.assertEqual(result.status, "error")
+        self.assertEqual(len(client.calls), 1)
+        self.assertEqual(result.error, "Komunikace s jazykovým modelem selhala.")
 
     def test_rejects_empty_user_input_without_calling_model(self) -> None:
         agent, client = self.make_agent([])
@@ -127,7 +123,61 @@ class TestAIAgent(unittest.TestCase):
         result = agent.run("Test spojení")
 
         self.assertEqual(result.status, "error")
-        self.assertIn("Simulovaná chyba spojení", result.error)
+        self.assertEqual(result.error, "Komunikace s jazykovým modelem selhala.")
+
+    def test_handles_unexpected_llm_client_exception(self) -> None:
+        class BrokenClient:
+            def chat(self, request):
+                raise RuntimeError("Interní detail, který nemá vidět uživatel.")
+
+        agent = AIAgent(llm_client=BrokenClient(), memory=self.memory)
+        result = agent.run("Vyzkoušej neočekávanou chybu.")
+
+        self.assertEqual(result.status, "error")
+        self.assertEqual(
+            result.error, "Nastala neočekávaná interní chyba LLM klienta."
+        )
+        self.assertNotIn("Interní detail", result.error)
+
+    def test_rejects_malformed_llm_response(self) -> None:
+        class MalformedClient:
+            def chat(self, request):
+                return {"content": "Toto není LLMResponse."}
+
+        agent = AIAgent(llm_client=MalformedClient(), memory=self.memory)
+        result = agent.run("Ověř chybnou odpověď.")
+
+        self.assertEqual(result.status, "error")
+        self.assertEqual(result.error, "Komunikace s jazykovým modelem selhala.")
+
+    def test_unexpected_tool_exception_does_not_break_agent_loop(self) -> None:
+        call = ToolCall("call-1", "calculator", {"operation": "add", "a": 1, "b": 2})
+        agent, client = self.make_agent(
+            [LLMResponse(tool_calls=[call]), LLMResponse(content="Nástroj selhal bezpečně.")]
+        )
+
+        with patch(
+            "agent.agent.execute_tool",
+            side_effect=RuntimeError("Interní cesta nebo detail"),
+        ):
+            result = agent.run("Vyzkoušej chybu nástroje.")
+
+        self.assertEqual(result.status, "completed")
+        tool_message = next(
+            message for message in client.calls[1].messages if message.role == "tool"
+        )
+        tool_error = json.loads(tool_message.content)
+        self.assertIn("error", tool_error)
+        self.assertNotIn("Interní cesta", tool_message.content)
+
+    def test_rejects_tool_call_without_valid_id(self) -> None:
+        call = ToolCall("", "calculator", {"operation": "add", "a": 1, "b": 2})
+        agent, client = self.make_agent([LLMResponse(tool_calls=[call])])
+        result = agent.run("Vyzkoušej neplatné ID nástroje.")
+
+        self.assertEqual(result.status, "error")
+        self.assertEqual(len(client.calls), 1)
+        self.assertEqual(result.error, "Komunikace s jazykovým modelem selhala.")
 
     def test_mock_client_reports_exhausted_responses(self) -> None:
         client = MockLLMClient([])

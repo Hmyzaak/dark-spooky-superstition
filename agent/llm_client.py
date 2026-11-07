@@ -3,7 +3,7 @@
 import json
 import time
 from typing import Protocol
-from urllib.error import HTTPError, URLError
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from agent.models import (
@@ -150,7 +150,7 @@ class OllamaClient:
             except HTTPError as exc:
                 if exc.code < 500 or attempt >= self.max_retries:
                     raise LLMError(f"Ollama HTTP chyba: {exc.code}") from exc
-            except (URLError, TimeoutError) as exc:
+            except OSError as exc:
                 if attempt >= self.max_retries:
                     raise LLMError(
                         "Ollama není dostupná nebo vypršel časový limit."

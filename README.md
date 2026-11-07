@@ -17,7 +17,10 @@ Aktuální implementace používá provider-neutrální datový kontrakt. Agent 
 - simulovaný LLM klient pro deterministické testování;
 - dlouhodobé ukládání uživatelských a finálních odpovědí do SQLite;
 - pokračování agenta i při nedostupnosti SQLite paměti s upozorněním uživatele;
-- atomické ukládání uživatelského vstupu a odpovědi v jedné transakci.
+- atomické ukládání uživatelského vstupu a odpovědi v jedné transakci;
+- zachytávání neočekávaných chyb LLM klienta a nástrojů;
+- ověřování struktury odpovědi modelu před zpracováním volání nástrojů;
+- převod síťových chyb poskytovatelů na společnou výjimku `LLMError`.
 
 **Prakticky ověřeno v rámci vývoje:**
 
@@ -102,6 +105,8 @@ Lokální databáze `agent_memory.db` obsahuje historii konverzace. Je proto uve
 
 SQLite paměť je doplňková. Pokud se ji nepodaří inicializovat, načíst nebo do ní uložit výměnu, agent pokračuje bez historie a výsledek obsahuje samostatné pole `memory_warning`. Chyba paměti nemění stav ani text odpovědi modelu. Dvojice uživatelská zpráva + odpověď se ukládá v jedné SQLite transakci.
 
+Chyby komunikace s LLM klientem a neočekávané chyby nástrojů jsou zachyceny na hranici příslušné komponenty. Agent vrací bezpečnou, uživatelsky srozumitelnou zprávu; technické podrobnosti zapisuje standardní modul `logging` do lokálního souboru `agent.log` v kořenové složce projektu. Tento soubor je v `.gitignore`. Neplatná struktura odpovědi modelu je odmítnuta před dalším zpracováním.
+
 Agent nespouští libovolný Python kód ani příkazy operačního systému. Dostupné operace jsou omezené na nástroje registrované v `agent/tools.py`.
 
 ## Testování
@@ -120,7 +125,7 @@ python -m compileall -q agent tests main.py config.py
 
 Testy používají `MockLLMClient` nebo simulované HTTP odpovědi. Nevyžadují skutečný API klíč ani běžící Ollama. Úspěšný běh automatických testů proto ověřuje především interní logiku a převody dat; sám o sobě nepotvrzuje dostupnost externí služby.
 
-Při bezpečnostní revizi po doplnění testů odolnosti SQLite paměti obsahovala aktuální sada 43 jednotkových testů; všechny prošly. Kompilace uvedeným příkazem také prošla. Testy používají dočasné soubory a simulované odpovědi; skutečné chování Groq a Ollama je nutné ověřovat samostatně.
+Po kroku 2 obsahovala sada 43 jednotkových testů. Po doplnění testů odolnosti LLM komunikace a nástrojů obsahuje 50 testů. Testy používají dočasné soubory a simulované odpovědi; skutečné chování Groq a Ollama je nutné ověřovat samostatně.
 
 ## Struktura projektu
 

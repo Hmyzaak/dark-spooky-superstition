@@ -61,6 +61,17 @@ class TestToolExecution(unittest.TestCase):
         result = execute_tool("calculator", ["add", 2, 3])
         self.assertIn("error", json.loads(result))
 
+    def test_unexpected_tool_exception_is_sanitized(self):
+        with patch(
+            "agent.tools.AVAILABLE_TOOLS",
+            {"broken": lambda: (_ for _ in ()).throw(RuntimeError("tajný detail"))},
+        ):
+            result = execute_tool("broken", {})
+
+        payload = json.loads(result)
+        self.assertIn("error", payload)
+        self.assertNotIn("tajný detail", result)
+
 
 class TestFileAccess(unittest.TestCase):
     """Testy bezpečného přístupu k souborům."""

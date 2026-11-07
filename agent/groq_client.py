@@ -2,7 +2,7 @@
 
 import json
 import time
-from urllib.error import HTTPError, URLError
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from agent.llm_client import LLMError
@@ -151,7 +151,7 @@ class GroqClient:
                 if exc.code < 500 or attempt >= self.max_retries:
                     raise LLMError(details) from exc
 
-            except (URLError, TimeoutError) as exc:
+            except OSError as exc:
                 if attempt >= self.max_retries:
                     raise LLMError(
                         "Groq není dostupná nebo vypršel časový limit."

@@ -8,7 +8,7 @@ from typing import Literal
 
 from agent.llm_client import LLMClient, LLMError
 from agent.memory import AgentMemory
-from agent.models import ChatMessage, LLMRequest, ToolCall
+from agent.models import ChatMessage, LLMRequest, LLMResponse, ToolCall
 from agent.tools import TOOL_DEFINITIONS, execute_tool
 from config import MAX_AGENT_STEPS, MAX_TOOL_CALLS, SYSTEM_PROMPT
 
@@ -26,6 +26,10 @@ _MEMORY_READ_WARNING = (
 _MEMORY_SAVE_WARNING = (
     "Odpověď byla vytvořena, ale nepodařilo se ji uložit do historie konverzace."
 )
+_LLM_ERROR_ANSWER = "Nepodařilo se získat odpověď od jazykového modelu."
+_LLM_ERROR_DETAILS = "Komunikace s jazykovým modelem selhala."
+_UNEXPECTED_LLM_ERROR_DETAILS = "Nastala neočekávaná interní chyba LLM klienta."
+_TOOL_ERROR = "Nástroj selhal kvůli neočekávané interní chybě."
 
 
 @dataclass
@@ -86,14 +90,31 @@ class AIAgent:
                 response = self.llm.chat(
                     LLMRequest(messages=messages, tools=TOOL_DEFINITIONS)
                 )
+                self._validate_llm_response(response)
             except LLMError as exc:
+                # Podrobnosti zůstávají v logu; uživateli neposíláme surovou
+                # odpověď poskytovatele, která může obsahovat interní údaje.
+                logger.warning("Požadavek na jazykový model selhal: %s", exc)
                 return self._finalize_result(
                     clean_input,
                     AgentResult(
                         status="error",
-                        answer="Nepodařilo se komunikovat s jazykovým modelem.",
+                        answer=_LLM_ERROR_ANSWER,
                         tool_calls=tool_calls_count,
-                        error=str(exc),
+                        error=_LLM_ERROR_DETAILS,
+                    ),
+                    memory_warning=memory_warning,
+                )
+            except Exception:
+                # Poslední ochranná hranice pro chyby neznámého LLM klienta.
+                logger.exception("Neočekávaná chyba LLM klienta.")
+                return self._finalize_result(
+                    clean_input,
+                    AgentResult(
+                        status="error",
+                        answer=_LLM_ERROR_ANSWER,
+                        tool_calls=tool_calls_count,
+                        error=_UNEXPECTED_LLM_ERROR_DETAILS,
                     ),
                     memory_warning=memory_warning,
                 )
@@ -164,16 +185,47 @@ class AIAgent:
         )
 
     @staticmethod
+    def _validate_llm_response(response: LLMResponse) -> None:
+        """Ověří základní tvar odpovědi podle interního kontraktu LLM."""
+
+        if not isinstance(response, LLMResponse):
+            raise LLMError("LLM klient vrátil neočekávaný typ odpovědi.")
+        if response.content is not None and not isinstance(response.content, str):
+            raise LLMError("LLM klient vrátil neplatný obsah zprávy.")
+        if not isinstance(response.tool_calls, list):
+            raise LLMError("LLM klient vrátil neplatný seznam volání nástrojů.")
+        for tool_call in response.tool_calls:
+            if not isinstance(tool_call, ToolCall):
+                raise LLMError("LLM klient vrátil neplatné volání nástroje.")
+            if (
+                not isinstance(tool_call.id, str)
+                or not tool_call.id
+                or not isinstance(tool_call.name, str)
+                or not tool_call.name
+                or not isinstance(tool_call.arguments, dict)
+            ):
+                raise LLMError("LLM klient vrátil neplatné údaje volání nástroje.")
+
+    @staticmethod
     def _execute_tool_call(tool_call: ToolCall) -> str:
         """Bezpečně předá normalizované volání do registru nástrojů."""
 
-        if not isinstance(tool_call.name, str) or not isinstance(
-            tool_call.arguments, dict
+        if (
+            not isinstance(tool_call.id, str)
+            or not tool_call.id
+            or not isinstance(tool_call.name, str)
+            or not isinstance(tool_call.arguments, dict)
         ):
             return json.dumps(
                 {"error": "Neplatný požadavek na nástroj."}, ensure_ascii=False
             )
-        return execute_tool(tool_call.name, tool_call.arguments)
+
+        try:
+            return execute_tool(tool_call.name, tool_call.arguments)
+        except Exception:
+            # Chrání Agent Loop i před chybou mimo běžné ošetření registru.
+            logger.exception("Neočekávaná chyba při volání nástroje %s.", tool_call.name)
+            return json.dumps({"error": _TOOL_ERROR}, ensure_ascii=False)
 
     def _build_messages(
         self, user_input: str

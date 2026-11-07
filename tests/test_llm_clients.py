@@ -64,6 +64,11 @@ class TestGroqClient(unittest.TestCase):
         self.assertEqual(result.tool_calls[0].id, "call-abc")
         self.assertEqual(result.tool_calls[0].arguments["a"], 2)
 
+    @patch("agent.groq_client.urlopen", side_effect=ConnectionResetError("connection reset"))
+    def test_converts_unexpected_network_oserror_to_llm_error(self, mock_urlopen) -> None:
+        with self.assertRaises(LLMError):
+            self.client.chat(LLMRequest(messages=[]))
+
     def test_requires_api_key(self) -> None:
         with patch("agent.groq_client.GROQ_API_KEY", ""):
             with self.assertRaises(ValueError):
@@ -120,6 +125,11 @@ class TestOllamaClient(unittest.TestCase):
         result = self.client.chat(LLMRequest(messages=[]))
         self.assertEqual(result.tool_calls[0].id, "ollama-call-1")
         self.assertEqual(result.tool_calls[0].name, "calculator")
+
+    @patch("agent.llm_client.urlopen", side_effect=ConnectionResetError("connection reset"))
+    def test_converts_network_oserror_to_llm_error(self, mock_urlopen) -> None:
+        with self.assertRaises(LLMError):
+            self.client.chat(LLMRequest(messages=[]))
 
     @patch("agent.llm_client.urlopen")
     def test_rejects_non_dictionary_json_response(self, mock_urlopen) -> None:

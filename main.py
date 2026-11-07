@@ -1,9 +1,11 @@
 """Vstupní bod konzolové aplikace AI agenta."""
 
+import logging
+
 from agent.agent import AIAgent
 from agent.groq_client import GroqClient
 from agent.llm_client import LLMError, OllamaClient
-from config import LLM_PROVIDER
+from config import BASE_DIR, LLM_PROVIDER
 
 
 def create_llm_client():
@@ -18,8 +20,21 @@ def create_llm_client():
     )
 
 
+def configure_logging() -> None:
+    """Ukládá technické chyby do lokálního souboru agent.log."""
+
+    logging.basicConfig(
+        filename=BASE_DIR / "agent.log",
+        level=logging.WARNING,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        encoding="utf-8",
+    )
+
+
 def main() -> None:
     """Spustí interaktivní komunikaci s agentem."""
+
+    configure_logging()
 
     try:
         agent = AIAgent(llm_client=create_llm_client())

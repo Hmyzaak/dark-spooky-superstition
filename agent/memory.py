@@ -50,6 +50,22 @@ class AgentMemory:
                     (role, content),
                 )
 
+    def save_exchange(self, user_input: str, assistant_answer: str) -> None:
+        """Uloží uživatelský vstup a odpověď v jedné transakci."""
+
+        with closing(self._connect()) as connection:
+            with connection:
+                connection.executemany(
+                    """
+                    INSERT INTO conversation (role, content)
+                    VALUES (?, ?)
+                    """,
+                    [
+                        ("user", user_input),
+                        ("assistant", assistant_answer),
+                    ],
+                )
+
     def get_history(self) -> list[dict[str, str]]:
         """Načte poslední zprávy v chronologickém pořadí."""
 

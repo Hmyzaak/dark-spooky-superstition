@@ -1,6 +1,8 @@
 """Řídicí logika AI agenta a jeho rozhodovací cyklus."""
 
 import json
+import logging
+import sqlite3
 from dataclasses import asdict, dataclass
 from typing import Literal
 
@@ -11,7 +13,19 @@ from agent.tools import TOOL_DEFINITIONS, execute_tool
 from config import MAX_AGENT_STEPS, MAX_TOOL_CALLS, SYSTEM_PROMPT
 
 
+logger = logging.getLogger(__name__)
+
 AgentStatus = Literal["completed", "error", "limit_reached"]
+
+_MEMORY_INIT_WARNING = (
+    "Paměť konverzace není dostupná. Agent pokračuje bez ukládání historie."
+)
+_MEMORY_READ_WARNING = (
+    "Historii konverzace se nepodařilo načíst. Agent pokračoval bez předchozí historie."
+)
+_MEMORY_SAVE_WARNING = (
+    "Odpověď byla vytvořena, ale nepodařilo se ji uložit do historie konverzace."
+)
 
 
 @dataclass
@@ -22,6 +36,7 @@ class AgentResult:
     answer: str
     tool_calls: int
     error: str | None = None
+    memory_warning: str | None = None
 
 
 def to_json(result: AgentResult) -> str:
@@ -41,7 +56,15 @@ class AIAgent:
         if llm_client is None:
             raise ValueError("AIAgent vyžaduje explicitně předaného LLM klienta.")
         self.llm = llm_client
-        self.memory = memory if memory is not None else AgentMemory()
+        self.memory = memory
+        self._memory_initialization_warning: str | None = None
+
+        if self.memory is None:
+            try:
+                self.memory = AgentMemory()
+            except (sqlite3.Error, OSError):
+                logger.debug("Inicializace SQLite paměti selhala.", exc_info=True)
+                self._memory_initialization_warning = _MEMORY_INIT_WARNING
 
     def run(self, user_input: str) -> AgentResult:
         """Zpracuje uživatelský požadavek prostřednictvím Agent Loop."""
@@ -55,7 +78,7 @@ class AIAgent:
             )
 
         clean_input = user_input.strip()
-        messages = self._build_messages(clean_input)
+        messages, memory_warning = self._build_messages(clean_input)
         tool_calls_count = 0
 
         for _ in range(MAX_AGENT_STEPS):
@@ -72,6 +95,7 @@ class AIAgent:
                         tool_calls=tool_calls_count,
                         error=str(exc),
                     ),
+                    memory_warning=memory_warning,
                 )
 
             if response.tool_calls:
@@ -85,7 +109,9 @@ class AIAgent:
 
                 remaining_calls = MAX_TOOL_CALLS - tool_calls_count
                 if remaining_calls <= 0:
-                    return self._limit_result(clean_input, tool_calls_count)
+                    return self._limit_result(
+                        clean_input, tool_calls_count, memory_warning=memory_warning
+                    )
 
                 calls_to_execute = response.tool_calls[:remaining_calls]
                 for tool_call in calls_to_execute:
@@ -102,7 +128,9 @@ class AIAgent:
 
                 # Nepovolíme vykonání dalších volání nad nastavený limit.
                 if len(calls_to_execute) < len(response.tool_calls):
-                    return self._limit_result(clean_input, tool_calls_count)
+                    return self._limit_result(
+                        clean_input, tool_calls_count, memory_warning=memory_warning
+                    )
                 continue
 
             answer = response.content.strip() if isinstance(response.content, str) else ""
@@ -115,6 +143,7 @@ class AIAgent:
                         tool_calls=tool_calls_count,
                         error="Finální odpověď modelu neobsahuje žádný text.",
                     ),
+                    memory_warning=memory_warning,
                 )
 
             return self._finalize_result(
@@ -124,9 +153,15 @@ class AIAgent:
                     answer=answer,
                     tool_calls=tool_calls_count,
                 ),
+                memory_warning=memory_warning,
             )
 
-        return self._limit_result(clean_input, tool_calls_count, steps=True)
+        return self._limit_result(
+            clean_input,
+            tool_calls_count,
+            steps=True,
+            memory_warning=memory_warning,
+        )
 
     @staticmethod
     def _execute_tool_call(tool_call: ToolCall) -> str:
@@ -140,18 +175,30 @@ class AIAgent:
             )
         return execute_tool(tool_call.name, tool_call.arguments)
 
-    def _build_messages(self, user_input: str) -> list[ChatMessage]:
-        """Sestaví kontext z instrukcí, uložené historie a aktuálního vstupu."""
+    def _build_messages(
+        self, user_input: str
+    ) -> tuple[list[ChatMessage], str | None]:
+        """Sestaví kontext; při chybě paměti pokračuje bez uložené historie."""
 
-        history = [
-            ChatMessage(role=item["role"], content=item["content"])
-            for item in self.memory.get_history()
-        ]
-        return [
+        memory_warning = self._memory_initialization_warning
+        history: list[ChatMessage] = []
+
+        if self.memory is not None:
+            try:
+                history = [
+                    ChatMessage(role=item["role"], content=item["content"])
+                    for item in self.memory.get_history()
+                ]
+            except (sqlite3.Error, OSError):
+                logger.debug("Načtení historie SQLite selhalo.", exc_info=True)
+                memory_warning = _MEMORY_READ_WARNING
+
+        messages = [
             ChatMessage(role="system", content=SYSTEM_PROMPT),
             *history,
             ChatMessage(role="user", content=user_input),
         ]
+        return messages, memory_warning
 
     def _limit_result(
         self,
@@ -159,6 +206,7 @@ class AIAgent:
         tool_calls_count: int,
         *,
         steps: bool = False,
+        memory_warning: str | None = None,
     ) -> AgentResult:
         reason = (
             "Byl dosažen maximální počet rozhodovacích cyklů."
@@ -178,11 +226,36 @@ class AIAgent:
                 tool_calls=tool_calls_count,
                 error=reason,
             ),
+            memory_warning=memory_warning,
         )
 
-    def _finalize_result(self, user_input: str, result: AgentResult) -> AgentResult:
-        """Uloží uživatelský vstup a finální odpověď do dlouhodobé paměti."""
+    def _finalize_result(
+        self,
+        user_input: str,
+        result: AgentResult,
+        *,
+        memory_warning: str | None = None,
+    ) -> AgentResult:
+        """Uloží výměnu do paměti; chyba ukládání neovlivní odpověď agenta."""
 
-        self.memory.save_message("user", user_input)
-        self.memory.save_message("assistant", result.answer)
+        if self.memory is not None:
+            try:
+                self.memory.save_exchange(user_input, result.answer)
+            except (sqlite3.Error, OSError):
+                logger.debug("Uložení historie SQLite selhalo.", exc_info=True)
+                memory_warning = self._combine_warnings(
+                    memory_warning, _MEMORY_SAVE_WARNING
+                )
+
+        result.memory_warning = memory_warning
         return result
+
+    @staticmethod
+    def _combine_warnings(first: str | None, second: str) -> str:
+        """Spojí upozornění bez duplicitního prázdného řádku."""
+
+        if not first:
+            return second
+        if second in first:
+            return first
+        return f"{first} {second}"

@@ -1,10 +1,12 @@
 """Testy agentního cyklu nad provider-neutrálním datovým kontraktem."""
 
 import json
+import sqlite3
 import tempfile
 import unittest
-from unittest.mock import patch
+from contextlib import closing
 from pathlib import Path
+from unittest.mock import patch
 
 from agent.agent import AIAgent, AgentResult, to_json
 from agent.llm_client import LLMError
@@ -175,6 +177,84 @@ class TestAIAgent(unittest.TestCase):
                 {"role": "assistant", "content": "Hotovo."},
             ],
         )
+
+    def test_agent_continues_when_memory_initialization_fails(self) -> None:
+        client = MockLLMClient([LLMResponse(content="Odpověď bez paměti.")])
+        with patch(
+            "agent.agent.AgentMemory",
+            side_effect=sqlite3.OperationalError("Databáze není dostupná."),
+        ):
+            agent = AIAgent(llm_client=client)
+
+        result = agent.run("Odpověz i bez databáze.")
+
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(result.answer, "Odpověď bez paměti.")
+        self.assertIn("Paměť konverzace není dostupná", result.memory_warning)
+        self.assertEqual(len(client.calls), 1)
+
+    def test_agent_continues_when_reading_memory_fails(self) -> None:
+        class BrokenReadMemory:
+            def get_history(self):
+                raise sqlite3.OperationalError("Čtení databáze selhalo.")
+
+            def save_exchange(self, user_input, assistant_answer):
+                self.saved_exchange = (user_input, assistant_answer)
+
+        memory = BrokenReadMemory()
+        client = MockLLMClient([LLMResponse(content="Odpověď bez historie.")])
+        agent = AIAgent(llm_client=client, memory=memory)
+
+        result = agent.run("Pokračuj bez historie.")
+
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(result.answer, "Odpověď bez historie.")
+        self.assertIn("Historii konverzace se nepodařilo načíst", result.memory_warning)
+        self.assertEqual(
+            memory.saved_exchange,
+            ("Pokračuj bez historie.", "Odpověď bez historie."),
+        )
+        self.assertEqual(
+            [message.role for message in client.calls[0].messages],
+            ["system", "user"],
+        )
+
+    def test_agent_preserves_answer_when_saving_memory_fails(self) -> None:
+        class BrokenSaveMemory:
+            def get_history(self):
+                return []
+
+            def save_exchange(self, user_input, assistant_answer):
+                raise sqlite3.OperationalError("Zápis do databáze selhal.")
+
+        client = MockLLMClient([LLMResponse(content="Odpověď zůstane zachována.")])
+        agent = AIAgent(llm_client=client, memory=BrokenSaveMemory())
+
+        result = agent.run("Ulož mou otázku.")
+
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(result.answer, "Odpověď zůstane zachována.")
+        self.assertIsNone(result.error)
+        self.assertIn("nepodařilo se ji uložit", result.memory_warning)
+
+    def test_memory_saves_exchange_atomically(self) -> None:
+        with closing(sqlite3.connect(self.memory.database_path)) as connection:
+            with connection:
+                connection.execute(
+                    """
+                    CREATE TRIGGER reject_assistant_message
+                    BEFORE INSERT ON conversation
+                    WHEN NEW.role = 'assistant'
+                    BEGIN
+                        SELECT RAISE(ABORT, 'Simulované selhání zápisu.');
+                    END;
+                    """
+                )
+
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.memory.save_exchange("Uživatelská zpráva", "Odpověď asistenta")
+
+        self.assertEqual(self.memory.get_history(), [])
 
     def test_to_json_serializes_agent_result(self) -> None:
         serialized = json.loads(

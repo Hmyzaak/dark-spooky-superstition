@@ -128,7 +128,7 @@ Agent předá adaptéru `LLMRequest` a očekává normalizovaný `LLMResponse`. 
 7. Adaptér normalizuje odpověď na `LLMResponse`.
 8. Pokud odpověď obsahuje volání nástrojů, agent je vykoná a přidá výsledkové zprávy do dočasného kontextu.
 9. Agent znovu zavolá model s aktualizovaným kontextem.
-10. Jakmile model vrátí text bez volání nástrojů, agent vrátí `AgentResult` a uloží uživatelský vstup a finální odpověď do SQLite.
+10. Jakmile model vrátí text bez volání nástrojů, agent vytvoří `AgentResult` a pokusí se uložit uživatelský vstup a finální odpověď do SQLite. Chyba paměti neblokuje odpověď; projeví se samostatným upozorněním v `AgentResult.memory_warning`.
 
 ```mermaid
 sequenceDiagram
@@ -179,6 +179,8 @@ Limity Agent Loop a volání nástrojů jsou nezávislé. Agent může skončit 
 - `error` – nastala chyba vstupu, komunikace nebo prázdná konečná odpověď;
 - `limit_reached` – byl dosažen limit rozhodovacích kroků nebo volání nástrojů.
 
+Potíže s dlouhodobou pamětí nemění `status` ani `error`; oznamují se samostatným polem `memory_warning`.
+
 Počet volání nástrojů se vztahuje na vykonaná volání, nikoliv na počet cyklů.
 
 ## 8. Nástroje
@@ -214,7 +216,9 @@ Model pouze navrhuje volání nástroje. Samotné vykonání provádí Python ap
 - Tabulka `conversation` uchovává `id`, `role`, `content` a `created_at`.
 - Ukládají se pouze zprávy rolí `user` a `assistant`.
 - `get_history()` načítá posledních `MAX_HISTORY_MESSAGES` záznamů a vrací je chronologicky.
+- `save_exchange()` ukládá uživatelský vstup a odpověď asistenta v jedné transakci; při chybě se neuloží ani jedna zpráva.
 - Při sestavení kontextu se načtené záznamy převedou na interní `ChatMessage`.
+- Inicializace, načtení ani uložení paměti nejsou podmínkou běhu agenta. Při chybě pokračuje bez historie a vrací uživatelské upozornění v poli `memory_warning`.
 
 Výsledky nástrojů a mezilehlé zprávy asistenta s `tool_calls` se do SQLite neukládají; existují pouze v kontextu aktuálního běhu.
 
@@ -238,7 +242,8 @@ Automatické testy adaptérů používají simulované HTTP odpovědi. Nepotvrzu
 - Nejsou implementovány obecné shell příkazy ani vykonávání kódu generovaného modelem.
 - Validace cest a symlinků snižuje riziko neoprávněného přístupu, ale sama o sobě není úplným bezpečnostním auditem. Zejména je třeba mít na paměti možné závody mezi kontrolou cesty a otevřením souboru (TOCTOU).
 - Odpověď modelu může být věcně neúplná, i když nástroje proběhnou správně. Příklad: model provedl dva výpočty, ale ve finální odpovědi uvedl pouze druhý výsledek.
-- Ukládání do SQLite probíhá při finalizaci výsledku. Chyba databáze může ovlivnit dokončení požadavku; aktuální implementace nemá samostatný mechanismus pro obnovu paměti.
+- SQLite paměť je best-effort služba: chyba inicializace, čtení nebo zápisu neblokuje dokončení požadavku. Agent pokračuje bez historie a vrací `memory_warning`; technický detail je dostupný při zapnutém DEBUG logování.
+- Ukládání dvojice uživatelská zpráva + odpověď probíhá atomicky v jedné transakci. Pokud jedna část selže, transakce se vrátí zpět.
 
 ## 12. Možný další rozvoj
 

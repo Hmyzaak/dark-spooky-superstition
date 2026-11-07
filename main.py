@@ -3,7 +3,6 @@
 from agent.agent import AIAgent
 from agent.groq_client import GroqClient
 from agent.llm_client import LLMError, OllamaClient
-from agent.memory import AgentMemory
 from config import LLM_PROVIDER
 
 
@@ -23,7 +22,7 @@ def main() -> None:
     """Spustí interaktivní komunikaci s agentem."""
 
     try:
-        agent = AIAgent(llm_client=create_llm_client(), memory=AgentMemory())
+        agent = AIAgent(llm_client=create_llm_client())
     except (ValueError, LLMError) as exc:
         print(f"Nelze spustit agenta: {exc}")
         return
@@ -48,6 +47,8 @@ def main() -> None:
             print(f"Použité nástroje: {result.tool_calls}")
             if result.error:
                 print(f"Chyba: {result.error}")
+            if result.memory_warning:
+                print(f"Upozornění paměti: {result.memory_warning}")
         except KeyboardInterrupt:
             print("\nAgent: Ukončuji aplikaci.")
             break

@@ -152,6 +152,8 @@ activemq-data/
 # Environments
 .env
 .envrc
+.env.*
+!.env.example
 .venv
 env/
 venv/
@@ -218,3 +220,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Lokální paměť agenta – může obsahovat soukromou historii konverzací
+agent_memory.db
+agent_memory.db-journal
+agent_memory.db-wal
+agent_memory.db-shm

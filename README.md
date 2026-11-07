@@ -15,7 +15,9 @@ Aktuální implementace používá provider-neutrální datový kontrakt. Agent 
 - interní datový kontrakt založený na `dataclass`;
 - adaptéry pro Groq Chat Completions API a lokální Ollama API;
 - simulovaný LLM klient pro deterministické testování;
-- dlouhodobé ukládání uživatelských a finálních odpovědí do SQLite.
+- dlouhodobé ukládání uživatelských a finálních odpovědí do SQLite;
+- pokračování agenta i při nedostupnosti SQLite paměti s upozorněním uživatele;
+- atomické ukládání uživatelského vstupu a odpovědi v jedné transakci.
 
 **Prakticky ověřeno v rámci vývoje:**
 
@@ -50,12 +52,16 @@ Není nutné instalovat další balíčky. Pokud PowerShell blokuje aktivaci skr
 
 ### Groq – výchozí poskytovatel
 
-Nastav API klíč v prostředí PowerShell. Klíč nevkládej přímo do zdrojového kódu ani do verzovacího systému:
+Aplikace načítá API klíč z proměnné prostředí `GROQ_API_KEY`. Pokud je klíč uložen v uživatelských nebo systémových proměnných prostředí Windows, není potřeba žádný `.env` soubor ani knihovna `python-dotenv`. Po změně proměnných prostředí otevři nový terminál nebo znovu spusť PyCharm.
+
+Pro jednorázové nastavení pouze v aktuálním okně PowerShellu lze použít:
 
 ```powershell
 $env:GROQ_API_KEY = "tvuj_api_klic"
 python main.py
 ```
+
+Klíč nikdy nevkládej přímo do zdrojového kódu ani do verzovacího systému.
 
 Výchozí model je `openai/gpt-oss-120b`. Model lze změnit proměnnou prostředí:
 
@@ -94,6 +100,8 @@ Pracovní prostor je adresář `workspace/` v kořenové složce projektu. Čten
 
 Lokální databáze `agent_memory.db` obsahuje historii konverzace. Je proto uvedena v `.gitignore` společně se soubory SQLite journal/WAL. Pokud už byla databáze dříve přidána do Gitu, samotné `.gitignore` ji z verzování neodstraní; lze ji přestat sledovat příkazem `git rm --cached agent_memory.db` (lokální soubor zůstane zachován).
 
+SQLite paměť je doplňková. Pokud se ji nepodaří inicializovat, načíst nebo do ní uložit výměnu, agent pokračuje bez historie a výsledek obsahuje samostatné pole `memory_warning`. Chyba paměti nemění stav ani text odpovědi modelu. Dvojice uživatelská zpráva + odpověď se ukládá v jedné SQLite transakci.
+
 Agent nespouští libovolný Python kód ani příkazy operačního systému. Dostupné operace jsou omezené na nástroje registrované v `agent/tools.py`.
 
 ## Testování
@@ -112,7 +120,7 @@ python -m compileall -q agent tests main.py config.py
 
 Testy používají `MockLLMClient` nebo simulované HTTP odpovědi. Nevyžadují skutečný API klíč ani běžící Ollama. Úspěšný běh automatických testů proto ověřuje především interní logiku a převody dat; sám o sobě nepotvrzuje dostupnost externí služby.
 
-Při bezpečnostní revizi bylo po doplnění testů spuštěno 39 jednotkových testů; všechny prošly. Kompilace uvedeným příkazem také prošla. Testy používají dočasné soubory a simulované odpovědi; skutečné chování Groq a Ollama je nutné ověřovat samostatně.
+Při bezpečnostní revizi po doplnění testů odolnosti SQLite paměti obsahovala aktuální sada 43 jednotkových testů; všechny prošly. Kompilace uvedeným příkazem také prošla. Testy používají dočasné soubory a simulované odpovědi; skutečné chování Groq a Ollama je nutné ověřovat samostatně.
 
 ## Struktura projektu
 

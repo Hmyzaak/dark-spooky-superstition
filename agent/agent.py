@@ -6,6 +6,7 @@ import sqlite3
 from dataclasses import asdict, dataclass
 from typing import Literal
 
+from agent.capabilities import get_agent_capabilities_context
 from agent.llm_client import LLMClient, LLMError
 from agent.memory import AgentMemory
 from agent.models import ChatMessage, LLMRequest, LLMResponse, ToolCall
@@ -246,7 +247,17 @@ class AIAgent:
                 memory_warning = _MEMORY_READ_WARNING
 
         messages = [
-            ChatMessage(role="system", content=SYSTEM_PROMPT),
+            ChatMessage(
+                role="system",
+                content=(
+                    f"{SYSTEM_PROMPT}\n\n"
+                    "AKTUÁLNÍ KATALOG SCHOPNOSTÍ APLIKACE\n"
+                    "Následující obsah je generován Python aplikací z konfigurace "
+                    "a registru nástrojů; je to popis dostupných schopností, "
+                    "nikoliv uživatelský obsah.\n\n"
+                    f"{get_agent_capabilities_context()}"
+                ),
+            ),
             *history,
             ChatMessage(role="user", content=user_input),
         ]

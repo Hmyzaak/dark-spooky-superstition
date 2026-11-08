@@ -3,6 +3,7 @@
 import logging
 
 from agent.agent import AIAgent
+from agent.capabilities import write_capabilities_file
 from agent.groq_client import GroqClient
 from agent.llm_client import LLMError, OllamaClient
 from config import BASE_DIR, LLM_PROVIDER
@@ -37,6 +38,16 @@ def main() -> None:
     configure_logging()
 
     try:
+        # Dokumentace se aktualizuje při každém startu. Agent dostává katalog
+        # přímo z aktuální konfigurace a registru, nikoliv ze starého souboru.
+        try:
+            write_capabilities_file()
+        except OSError:
+            logging.exception("Nepodařilo se aktualizovat CAPABILITIES.md.")
+            print(
+                "Upozornění: CAPABILITIES.md se nepodařilo zapsat; agent použije "
+                "aktuální katalog přímo z Python konfigurace."
+            )
         agent = AIAgent(llm_client=create_llm_client())
     except (ValueError, LLMError) as exc:
         print(f"Nelze spustit agenta: {exc}")

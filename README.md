@@ -24,7 +24,8 @@ Aktuální implementace používá provider-neutrální datový kontrakt. Agent 
 - omezené opakování dočasných HTTP a síťových chyb;
 - respektování hlavičky `Retry-After` a exponenciální prodlevy s horním limitem;
 - pravidla system promptu pro práci s nejistotou, faktickými tvrzeními a výsledky nástrojů;
-- upozornění uživatele, že agent nemá internetové vyhledávání ani externí ověřování.
+- upozornění uživatele, že agent nemá internetové vyhledávání ani externí ověřování;
+- automatické generování `CAPABILITIES.md` z konfigurace a registru nástrojů a předání aktuálního katalogu modelu.
 
 **Prakticky ověřeno v rámci vývoje:**
 
@@ -146,7 +147,7 @@ python -m compileall -q agent tests main.py config.py
 
 Testy používají `MockLLMClient` nebo simulované HTTP odpovědi. Nevyžadují skutečný API klíč ani běžící Ollama. Úspěšný běh automatických testů proto ověřuje především interní logiku a převody dat; sám o sobě nepotvrzuje dostupnost externí služby.
 
-Sada obsahuje 61 jednotkových testů. Testy používají dočasné soubory a simulované odpovědi; skutečné chování Groq a Ollama je nutné ověřovat samostatně. Test system promptu ověřuje přítomnost pravidel kvality odpovědí; nemůže prokázat, že se jimi jazykový model vždy řídí.
+Sada obsahuje 65 jednotkových testů. Testy používají dočasné soubory a simulované odpovědi; skutečné chování Groq a Ollama je nutné ověřovat samostatně. Test system promptu ověřuje přítomnost pravidel kvality odpovědí; nemůže prokázat, že se jimi jazykový model vždy řídí.
 
 ## Struktura projektu
 
@@ -155,32 +156,59 @@ Sada obsahuje 61 jednotkových testů. Testy používají dočasné soubory a si
  ├── agent/
  │   ├── __init__.py
  │   ├── agent.py
+ │   ├── capabilities.py
  │   ├── groq_client.py
  │   ├── llm_client.py
  │   ├── memory.py
  │   ├── mock_llm_client.py
-│   ├── retry.py
  │   ├── models.py
+ │   ├── retry.py
  │   └── tools.py
  ├── tests/
  │   ├── test_agent.py
+ │   ├── test_capabilities.py
  │   ├── test_llm_clients.py
  │   └── test_tools.py
  ├── workspace/
  │   ├── example.txt
  │   └── example_pi.txt
+ ├── scripts/
+ │   ├── __init__.py
+ │   └── generate_capabilities.py
  ├── config.py
  ├── main.py
  ├── requirements.txt
  ├── README.md
- └── ARCHITECTURE.md
+ ├── ARCHITECTURE.md
+ └── CAPABILITIES.md  (generovaný soubor)
 ```
 
 Databáze `agent_memory.db` se vytvoří automaticky při prvním spuštění. Není součástí zdrojové struktury a její obsah je lokální stav aplikace.
 
-## Další dokumentace
+## Dokumentace a katalog schopností
 
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) – technický popis komponent, datového kontraktu a toku požadavku.
+- [`CAPABILITIES.md`](CAPABILITIES.md) – automaticky generovaný přehled dostupných nástrojů, funkcí a omezení.
+
+`CAPABILITIES.md` se aktualizuje při každém spuštění aplikace. Lze jej také
+vygenerovat samostatně příkazem:
+
+```powershell
+python -m scripts.generate_capabilities
+```
+
+Zdroj pravdy tvoří Python konfigurace v `config.py` a skutečný registr i
+provider-neutrální definice nástrojů v `agent/tools.py`. Názvy, popisy a JSON
+Schema nástrojů se do katalogu přebírají z registru/definic, provozní limity
+z konfigurace. Agent dostává aktuální katalog přímo z těchto Python zdrojů
+jako doplněk system message; nespoléhá na ručně upravovaný ani potenciálně
+zastaralý obsah souboru. Vygenerovaný Markdown slouží jako čitelná dokumentace
+pro uživatele a vývojáře.
+
+`README.md` a `ARCHITECTURE.md` jsou dokumentace pro lidi. Nejsou automaticky
+vkládány celé do kontextu LLM: obsahují podrobnosti, které nejsou potřeba při
+každém požadavku. Jejich technický popis musí být udržován v souladu s kódem;
+konkrétní seznam runtime schopností má přednostně vycházet z `CAPABILITIES.md`.
 
 ## Aktuální hranice projektu
 

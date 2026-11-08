@@ -19,7 +19,10 @@ Aktuální systém je jeden agent s několika nástroji. Není to multiagentní 
 | Soubor | Odpovědnost |
 |---|---|
 | `main.py` | Vstupní bod aplikace, výběr poskytovatele a konzolová smyčka. |
-| `config.py` | Cesty, konfigurace poskytovatelů, limity a system prompt. |
+| `config.py` | Cesty, konfigurace poskytovatelů, limity, deklarace funkcí a system prompt. |
+| `agent/capabilities.py` | Generování katalogu schopností z konfigurace a registru nástrojů; příprava kontextu pro LLM. |
+| `CAPABILITIES.md` | Generovaný přehled skutečně registrovaných nástrojů, deklarovaných funkcí a provozních limitů. |
+| `scripts/generate_capabilities.py` | Samostatný příkaz pro aktualizaci katalogu schopností. |
 | `agent/models.py` | Provider-neutrální datový kontrakt. |
 | `agent/agent.py` | Agent Loop, sestavení kontextu, vykonávání volání nástrojů a výsledek běhu. |
 | `agent/llm_client.py` | `LLMClient` Protocol, `LLMError` a adaptér Ollama. |
@@ -292,3 +295,34 @@ Následující body jsou návrhy, nikoliv implementované funkce:
 6. Teprve po dokončení základů jednoho agenta rozšíření na specializovaného programátorského agenta a později na MAS.
 
 Rozšiřování o další poskytovatele nebo agenty nesmí vést ke smíchání herního projektu Magnum Opus s tímto vývojovým nástrojem. Jde o dva samostatné softwarové projekty.
+
+
+## 12. Katalog schopností a jeho generování
+
+`CAPABILITIES.md` není ručně udržovaný seznam. Generuje jej `agent/capabilities.py`
+z těchto zdrojů:
+
+- `config.py`: aktivní a podporovaní poskytovatelé LLM, deklarované funkce,
+  provozní limity;
+- `agent/tools.py`: `AVAILABLE_TOOLS` (implementace) a `TOOL_DEFINITIONS`
+  (popis a JSON Schema předávané modelu).
+
+Nástroj se v katalogu uvádí jako dostupný pouze tehdy, pokud existuje současně
+v registru implementací i v definicích nástrojů. Případný nesoulad se vypíše
+v samostatné sekci katalogu, aby byl při vývoji viditelný.
+
+Při spuštění `main.py` aplikace aktualizuje `CAPABILITIES.md`. Pokud zápis
+souboru selže (například kvůli oprávněním), běh agenta může pokračovat; aktuální
+katalog je i tak sestaven přímo z Python zdrojů a vložen do system message.
+Soubor lze aktualizovat také ručně příkazem
+`python -m scripts.generate_capabilities`.
+
+LLM dostává katalog sestavený v paměti z aktuální konfigurace a registru,
+nikoliv zpětným načtením Markdown souboru. Tím se zabrání tomu, aby ruční
+úprava nebo zastaralý soubor změnily skutečná oprávnění agenta. Katalog je
+informační kontext, nikoliv bezpečnostní mechanismus: vykonání nástrojů nadále
+řídí Python registr a jeho validační logika.
+
+`README.md` a `ARCHITECTURE.md` zůstávají podrobnou dokumentací pro vývojáře.
+Nejsou celé přidávány do každého požadavku LLM, protože by zbytečně zvětšovaly
+kontext a míchaly provozní fakta s rozsáhlým technickým popisem.

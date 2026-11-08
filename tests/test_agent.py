@@ -46,7 +46,10 @@ class TestAIAgent(unittest.TestCase):
         self.assertEqual(result.status, "completed")
         system_message = client.calls[0].messages[0]
         self.assertEqual(system_message.role, "system")
-        self.assertEqual(system_message.content, SYSTEM_PROMPT)
+        self.assertTrue(system_message.content.startswith(SYSTEM_PROMPT))
+        self.assertIn("Katalog schopností AI agenta", system_message.content)
+        self.assertIn("### `calculator`", system_message.content)
+        self.assertIn("Internetové vyhledávání** — NEIMPLEMENTOVÁNO", system_message.content)
         self.assertIn("Nemáš přístup k internetu", SYSTEM_PROMPT)
         self.assertIn("nezávisle ověřil", SYSTEM_PROMPT)
         self.assertIn("Nevymýšlej si fakta", SYSTEM_PROMPT)

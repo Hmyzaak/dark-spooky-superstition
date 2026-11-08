@@ -13,6 +13,11 @@ from agent.models import (
     ToolCall,
     ToolDefinition,
 )
+from agent.retry import (
+    get_retry_delay,
+    is_retryable_http_status,
+    validate_http_settings,
+)
 from config import MODEL_NAME, OLLAMA_URL
 
 
@@ -73,11 +78,10 @@ class OllamaClient:
         self,
         model: str = MODEL_NAME,
         url: str = OLLAMA_URL,
-        timeout: int = 120,
+        timeout: float = 120,
         max_retries: int = 2,
     ) -> None:
-        if timeout <= 0 or max_retries < 0:
-            raise ValueError("Neplatné nastavení timeout nebo max_retries.")
+        validate_http_settings(timeout, max_retries)
 
         self.model = model
         self.url = url
@@ -148,16 +152,25 @@ class OllamaClient:
                     raise LLMError("Ollama vrátila odpověď v neplatném formátu.")
                 return result
             except HTTPError as exc:
-                if exc.code < 500 or attempt >= self.max_retries:
+                retry_after = exc.headers.get("Retry-After") if exc.headers else None
+                exc.close()
+                if (
+                    not is_retryable_http_status(exc.code)
+                    or attempt >= self.max_retries
+                ):
                     raise LLMError(f"Ollama HTTP chyba: {exc.code}") from exc
+
+                time.sleep(get_retry_delay(attempt, retry_after))
+
             except OSError as exc:
                 if attempt >= self.max_retries:
                     raise LLMError(
                         "Ollama není dostupná nebo vypršel časový limit."
                     ) from exc
-            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-                raise LLMError("Ollama vrátila neplatná data.") from exc
+                time.sleep(get_retry_delay(attempt))
 
-            time.sleep(2 ** attempt)
+            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                # Chybná data nejsou dočasná síťová chyba; neopakujeme je.
+                raise LLMError("Ollama vrátila neplatná data.") from exc
 
         raise LLMError("Počet pokusů o komunikaci s Ollama byl vyčerpán.")

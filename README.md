@@ -20,7 +20,11 @@ Aktuální implementace používá provider-neutrální datový kontrakt. Agent 
 - atomické ukládání uživatelského vstupu a odpovědi v jedné transakci;
 - zachytávání neočekávaných chyb LLM klienta a nástrojů;
 - ověřování struktury odpovědi modelu před zpracováním volání nástrojů;
-- převod síťových chyb poskytovatelů na společnou výjimku `LLMError`.
+- převod síťových chyb poskytovatelů na společnou výjimku `LLMError`;
+- omezené opakování dočasných HTTP a síťových chyb;
+- respektování hlavičky `Retry-After` a exponenciální prodlevy s horním limitem;
+- pravidla system promptu pro práci s nejistotou, faktickými tvrzeními a výsledky nástrojů;
+- upozornění uživatele, že agent nemá internetové vyhledávání ani externí ověřování.
 
 **Prakticky ověřeno v rámci vývoje:**
 
@@ -31,6 +35,21 @@ Aktuální implementace používá provider-neutrální datový kontrakt. Agent 
 - uchování historie po ukončení a opětovném spuštění aplikace.
 
 **Známé omezení:** při testu dvou navazujících výpočtů agent provedl oba výpočty správně, ale v konečné odpovědi uvedl pouze druhý výsledek. Provedení nástrojů tedy samo o sobě nezaručuje úplnost závěrečné odpovědi modelu.
+
+## Kvalita odpovědí a ověřování
+
+System prompt v `config.py` vede model k tomu, aby nepřítomnost znalostí nezakrýval domněnkami, nevymýšlel si zdroje a rozlišoval fakta od odhadů. Pokud uživatel upozorní na chybu, model má odpověď znovu posoudit, nikoliv automaticky obhajovat předchozí tvrzení nebo bez posouzení přijmout novou informaci.
+
+Agent nemá internetové vyhledávání. Nemůže proto nezávisle ověřovat aktuální události, málo známé osoby, pořady, produkty ani jiné externí skutečnosti. V těchto případech má přiznat nejistotu a požádat o důvěryhodný zdroj nebo upřesnění. Samotná instrukce v system promptu ale halucinace neodstraní a není zárukou faktické správnosti.
+
+Ověření se v této verzi opírá o omezené a konkrétní mechanismy:
+
+- `calculator` vrací deterministicky vypočtený výsledek; model má převzít jeho hodnotu, nikoliv ji odhadovat;
+- `read_file` poskytuje skutečný obsah souboru; tvrzení o něm mají vycházet z tohoto výstupu;
+- při více voláních nástrojů jsou všechny jejich výsledky předány modelu v kontextu a system prompt požaduje jejich úplné vyhodnocení;
+- automatické testy ověřují, že výsledky nástrojů byly do dalšího požadavku modelu skutečně vloženy.
+
+To není nezávislé ověřování libovolných faktických tvrzení. Model může i přes instrukce vynechat výsledek nebo vytvořit nesprávné tvrzení. Stav `completed` znamená, že model vrátil konečnou textovou odpověď; neznamená, že její fakta byla nezávisle ověřena.
 
 ## Požadavky
 
@@ -107,6 +126,8 @@ SQLite paměť je doplňková. Pokud se ji nepodaří inicializovat, načíst ne
 
 Chyby komunikace s LLM klientem a neočekávané chyby nástrojů jsou zachyceny na hranici příslušné komponenty. Agent vrací bezpečnou, uživatelsky srozumitelnou zprávu; technické podrobnosti zapisuje standardní modul `logging` do lokálního souboru `agent.log` v kořenové složce projektu. Tento soubor je v `.gitignore`. Neplatná struktura odpovědi modelu je odmítnuta před dalším zpracováním.
 
+Klienti Groq a Ollama opakují pouze dočasné chyby: HTTP 408, 429 a 5xx a síťové chyby typu `OSError`. Výchozí počet opakování je 2 (tedy nejvýše 3 pokusy); povolené nastavení je 0 až 5 opakování. Prodleva používá exponenciální růst od 1 sekundy a je omezena na 30 sekund. Pokud server pošle `Retry-After`, klient tuto hodnotu respektuje, nejvýše však 30 sekund. Chyby 4xx mimo 408 a 429 a chybná JSON data se neopakují. Timeout 60 sekund pro Groq a 120 sekund pro Ollama se vztahuje na jednotlivý HTTP požadavek; konstruktor nedovolí nastavit více než 300 sekund. Nejde o celkový časový limit celého běhu agenta. Opakování síťové chyby může v krajním případě vytvořit další generaci a spotřebovat další API usage, proto je počet opakování omezen.
+
 Agent nespouští libovolný Python kód ani příkazy operačního systému. Dostupné operace jsou omezené na nástroje registrované v `agent/tools.py`.
 
 ## Testování
@@ -125,7 +146,7 @@ python -m compileall -q agent tests main.py config.py
 
 Testy používají `MockLLMClient` nebo simulované HTTP odpovědi. Nevyžadují skutečný API klíč ani běžící Ollama. Úspěšný běh automatických testů proto ověřuje především interní logiku a převody dat; sám o sobě nepotvrzuje dostupnost externí služby.
 
-Po kroku 2 obsahovala sada 43 jednotkových testů. Po doplnění testů odolnosti LLM komunikace a nástrojů obsahuje 50 testů. Testy používají dočasné soubory a simulované odpovědi; skutečné chování Groq a Ollama je nutné ověřovat samostatně.
+Sada obsahuje 61 jednotkových testů. Testy používají dočasné soubory a simulované odpovědi; skutečné chování Groq a Ollama je nutné ověřovat samostatně. Test system promptu ověřuje přítomnost pravidel kvality odpovědí; nemůže prokázat, že se jimi jazykový model vždy řídí.
 
 ## Struktura projektu
 
@@ -138,6 +159,7 @@ Po kroku 2 obsahovala sada 43 jednotkových testů. Po doplnění testů odolnos
  │   ├── llm_client.py
  │   ├── memory.py
  │   ├── mock_llm_client.py
+│   ├── retry.py
  │   ├── models.py
  │   └── tools.py
  ├── tests/
@@ -145,7 +167,8 @@ Po kroku 2 obsahovala sada 43 jednotkových testů. Po doplnění testů odolnos
  │   ├── test_llm_clients.py
  │   └── test_tools.py
  ├── workspace/
- │   └── example.txt
+ │   ├── example.txt
+ │   └── example_pi.txt
  ├── config.py
  ├── main.py
  ├── requirements.txt

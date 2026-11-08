@@ -7,6 +7,11 @@ from urllib.request import Request, urlopen
 
 from agent.llm_client import LLMError
 from agent.models import ChatMessage, LLMRequest, LLMResponse, ToolCall, ToolDefinition
+from agent.retry import (
+    get_retry_delay,
+    is_retryable_http_status,
+    validate_http_settings,
+)
 from config import GROQ_API_KEY, GROQ_MODEL, GROQ_URL
 
 
@@ -18,7 +23,7 @@ class GroqClient:
         api_key: str | None = None,
         model: str = GROQ_MODEL,
         url: str = GROQ_URL,
-        timeout: int = 60,
+        timeout: float = 60,
         max_retries: int = 2,
     ) -> None:
         self.api_key = api_key if api_key is not None else GROQ_API_KEY
@@ -26,8 +31,7 @@ class GroqClient:
             raise ValueError(
                 "Chybí GROQ_API_KEY. Nastav API klíč v proměnné prostředí."
             )
-        if timeout <= 0 or max_retries < 0:
-            raise ValueError("Neplatné nastavení timeout nebo max_retries.")
+        validate_http_settings(timeout, max_retries)
 
         self.model = model
         self.url = url
@@ -129,7 +133,12 @@ class GroqClient:
 
             except HTTPError as exc:
                 # Groq vrací v těle odpovědi podrobnosti o chybě.
-                error_body = exc.read().decode("utf-8", errors="replace")
+                try:
+                    error_body = exc.read().decode("utf-8", errors="replace")
+                except OSError:
+                    error_body = ""
+                finally:
+                    exc.close()
 
                 try:
                     error_data = json.loads(error_body)
@@ -143,22 +152,28 @@ class GroqClient:
                     error_code = None
 
                 details = f"Groq HTTP chyba {exc.code}: {error_message}"
-
                 if error_code:
                     details += f" (kód: {error_code})"
 
-                # Chyby 5xx mohou být dočasné.
-                if exc.code < 500 or attempt >= self.max_retries:
+                # Opakujeme pouze dočasné HTTP chyby a jen v povoleném limitu.
+                if (
+                    not is_retryable_http_status(exc.code)
+                    or attempt >= self.max_retries
+                ):
                     raise LLMError(details) from exc
+
+                retry_after = exc.headers.get("Retry-After") if exc.headers else None
+                time.sleep(get_retry_delay(attempt, retry_after))
 
             except OSError as exc:
                 if attempt >= self.max_retries:
                     raise LLMError(
                         "Groq není dostupná nebo vypršel časový limit."
                     ) from exc
-            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-                raise LLMError("Groq vrátila neplatná data.") from exc
+                time.sleep(get_retry_delay(attempt))
 
-            time.sleep(2 ** attempt)
+            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                # Chybná data nejsou dočasná síťová chyba; neopakujeme je.
+                raise LLMError("Groq vrátila neplatná data.") from exc
 
         raise LLMError("Počet pokusů o komunikaci s Groq byl vyčerpán.")

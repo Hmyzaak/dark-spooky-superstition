@@ -2,11 +2,42 @@
 
 import json
 import unittest
+from email.message import Message
+from io import BytesIO
+from urllib.error import HTTPError
 from unittest.mock import MagicMock, patch
 
 from agent.groq_client import GroqClient
 from agent.llm_client import LLMError, OllamaClient
 from agent.models import ChatMessage, LLMRequest, ToolCall, ToolDefinition
+from agent.retry import (
+    MAX_HTTP_TIMEOUT_SECONDS,
+    MAX_RETRIES,
+    MAX_RETRY_DELAY_SECONDS,
+    get_retry_delay,
+    is_retryable_http_status,
+    validate_http_settings,
+)
+
+
+def make_http_error(status_code: int, retry_after: str | None = None) -> HTTPError:
+    """Vytvoří HTTPError vhodný pro testování opakování požadavků."""
+
+    headers = Message()
+    if retry_after is not None:
+        headers["Retry-After"] = retry_after
+    body = b'{"error": {"message": "temporary failure"}}'
+    return HTTPError(
+        "https://example.test/api", status_code, "Test error", headers, BytesIO(body)
+    )
+
+
+def make_http_response(payload: dict) -> MagicMock:
+    response = MagicMock()
+    response.__enter__.return_value.read.return_value = json.dumps(payload).encode(
+        "utf-8"
+    )
+    return response
 
 
 class TestGroqClient(unittest.TestCase):
@@ -68,6 +99,47 @@ class TestGroqClient(unittest.TestCase):
     def test_converts_unexpected_network_oserror_to_llm_error(self, mock_urlopen) -> None:
         with self.assertRaises(LLMError):
             self.client.chat(LLMRequest(messages=[]))
+
+    @patch("agent.groq_client.time.sleep")
+    @patch("agent.groq_client.urlopen")
+    def test_retries_network_timeout(self, mock_urlopen, mock_sleep) -> None:
+        client = GroqClient(api_key="test-key", max_retries=1)
+        mock_urlopen.side_effect = [
+            TimeoutError("request timed out"),
+            make_http_response({"choices": [{"message": {"content": "Hotovo"}}]}),
+        ]
+
+        result = client.chat(LLMRequest(messages=[]))
+
+        self.assertEqual(result.content, "Hotovo")
+        self.assertEqual(mock_urlopen.call_count, 2)
+        mock_sleep.assert_called_once_with(1.0)
+
+    @patch("agent.groq_client.time.sleep")
+    @patch("agent.groq_client.urlopen")
+    def test_retries_rate_limit_and_respects_retry_after(self, mock_urlopen, mock_sleep) -> None:
+        client = GroqClient(api_key="test-key", max_retries=1)
+        mock_urlopen.side_effect = [
+            make_http_error(429, retry_after="3"),
+            make_http_response({"choices": [{"message": {"content": "Hotovo"}}]}),
+        ]
+
+        result = client.chat(LLMRequest(messages=[]))
+
+        self.assertEqual(result.content, "Hotovo")
+        self.assertEqual(mock_urlopen.call_count, 2)
+        mock_sleep.assert_called_once_with(3.0)
+
+    @patch("agent.groq_client.time.sleep")
+    @patch("agent.groq_client.urlopen", side_effect=make_http_error(401))
+    def test_does_not_retry_permanent_http_error(self, mock_urlopen, mock_sleep) -> None:
+        client = GroqClient(api_key="test-key", max_retries=2)
+
+        with self.assertRaises(LLMError):
+            client.chat(LLMRequest(messages=[]))
+
+        mock_urlopen.assert_called_once()
+        mock_sleep.assert_not_called()
 
     def test_requires_api_key(self) -> None:
         with patch("agent.groq_client.GROQ_API_KEY", ""):
@@ -131,6 +203,32 @@ class TestOllamaClient(unittest.TestCase):
         with self.assertRaises(LLMError):
             self.client.chat(LLMRequest(messages=[]))
 
+    @patch("agent.llm_client.time.sleep")
+    @patch("agent.llm_client.urlopen")
+    def test_retries_service_unavailable(self, mock_urlopen, mock_sleep) -> None:
+        client = OllamaClient(max_retries=1)
+        mock_urlopen.side_effect = [
+            make_http_error(503),
+            make_http_response({"message": {"content": "Hotovo"}}),
+        ]
+
+        result = client.chat(LLMRequest(messages=[]))
+
+        self.assertEqual(result.content, "Hotovo")
+        self.assertEqual(mock_urlopen.call_count, 2)
+        mock_sleep.assert_called_once_with(1.0)
+
+    @patch("agent.llm_client.time.sleep")
+    @patch("agent.llm_client.urlopen", side_effect=make_http_error(400))
+    def test_does_not_retry_bad_request(self, mock_urlopen, mock_sleep) -> None:
+        client = OllamaClient(max_retries=2)
+
+        with self.assertRaises(LLMError):
+            client.chat(LLMRequest(messages=[]))
+
+        mock_urlopen.assert_called_once()
+        mock_sleep.assert_not_called()
+
     @patch("agent.llm_client.urlopen")
     def test_rejects_non_dictionary_json_response(self, mock_urlopen) -> None:
         response = MagicMock()
@@ -138,6 +236,44 @@ class TestOllamaClient(unittest.TestCase):
         mock_urlopen.return_value = response
         with self.assertRaises(LLMError):
             self.client.chat(LLMRequest(messages=[]))
+
+
+class TestRetryPolicy(unittest.TestCase):
+    def test_only_temporary_http_statuses_are_retryable(self) -> None:
+        self.assertTrue(is_retryable_http_status(408))
+        self.assertTrue(is_retryable_http_status(429))
+        self.assertTrue(is_retryable_http_status(503))
+        self.assertFalse(is_retryable_http_status(400))
+        self.assertFalse(is_retryable_http_status(401))
+
+    def test_retry_delay_uses_exponential_backoff_and_cap(self) -> None:
+        self.assertEqual(get_retry_delay(0), 1.0)
+        self.assertEqual(get_retry_delay(1), 2.0)
+        self.assertEqual(get_retry_delay(10), float(MAX_RETRY_DELAY_SECONDS))
+
+    def test_retry_after_is_used_and_capped(self) -> None:
+        self.assertEqual(get_retry_delay(0, "4"), 4.0)
+        self.assertEqual(
+            get_retry_delay(0, str(MAX_RETRY_DELAY_SECONDS + 100)),
+            float(MAX_RETRY_DELAY_SECONDS),
+        )
+
+    def test_invalid_retry_after_uses_backoff(self) -> None:
+        self.assertEqual(get_retry_delay(1, "not-a-delay"), 2.0)
+
+    def test_http_settings_are_bounded_and_validated(self) -> None:
+        validate_http_settings(timeout=10, max_retries=MAX_RETRIES)
+        for timeout, retries in [
+            (0, 1),
+            (float("inf"), 1),
+            (MAX_HTTP_TIMEOUT_SECONDS + 1, 1),
+            (10, -1),
+            (10, MAX_RETRIES + 1),
+            (10, 1.5),
+        ]:
+            with self.subTest(timeout=timeout, retries=retries):
+                with self.assertRaises(ValueError):
+                    validate_http_settings(timeout, retries)
 
 
 if __name__ == "__main__":

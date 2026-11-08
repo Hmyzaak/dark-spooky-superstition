@@ -23,6 +23,7 @@ Aktuální systém je jeden agent s několika nástroji. Není to multiagentní 
 | `agent/models.py` | Provider-neutrální datový kontrakt. |
 | `agent/agent.py` | Agent Loop, sestavení kontextu, vykonávání volání nástrojů a výsledek běhu. |
 | `agent/llm_client.py` | `LLMClient` Protocol, `LLMError` a adaptér Ollama. |
+| `agent/retry.py` | Společná pravidla pro opakování HTTP požadavků, prodlevy a validaci limitů. |
 | `agent/groq_client.py` | Adaptér Groq Chat Completions API. |
 | `agent/tools.py` | Definice, registrace, validace a vykonávání nástrojů. |
 | `agent/memory.py` | Dlouhodobá historie konverzace v SQLite. |
@@ -115,7 +116,7 @@ Agent předá adaptéru `LLMRequest` a očekává normalizovaný `LLMResponse`. 
 
 ### Chyby komunikace
 
-`LLMError` je společná výjimka pro chyby komunikace s jazykovým modelem a neplatné odpovědi poskytovatele. Adaptéry zpracovávají HTTP chyby, síťové chyby typu `OSError`, timeouty a chybná JSON data. Opakování požadavku je omezeno parametrem `max_retries`. Agent navíc zachytává neočekávané výjimky cizího LLM klienta a kontroluje typ i základní strukturu `LLMResponse` před jejím zpracováním. Uživateli vrací obecnou zprávu, podrobnosti zapisuje přes `logging` do lokálního `agent.log`; tento soubor není verzován.
+`LLMError` je společná výjimka pro chyby komunikace s jazykovým modelem a neplatné odpovědi poskytovatele. Adaptéry zpracovávají HTTP chyby, síťové chyby typu `OSError`, timeouty a chybná JSON data. Modul `agent/retry.py` centralizuje politiku opakování: opakují se HTTP 408, 429, 5xx a síťové chyby `OSError`; běžné klientské chyby 4xx a chybná JSON data se neopakují. Výchozí `max_retries=2` znamená nejvýše tři pokusy, konstruktor povoluje rozsah 0 až 5 opakování. Prodleva je exponenciální (1, 2, 4, 8... sekund), s maximem 30 sekund. Platná hlavička `Retry-After` má přednost před vypočtenou prodlevou, ale i její hodnota je omezena na 30 sekund. Timeout se vztahuje na jednotlivý HTTP požadavek a jeho povolený rozsah je větší než 0 a nejvýše 300 sekund. Opakování POST požadavku při nejednoznačném stavu sítě může v krajním případě vytvořit další generaci a spotřebovat další API usage; počet opakování je proto omezen. Agent navíc omezuje běh na `MAX_AGENT_STEPS` a `MAX_TOOL_CALLS`, zachytává neočekávané výjimky cizího LLM klienta a kontroluje typ i základní strukturu `LLMResponse` před jejím zpracováním. Uživateli vrací obecnou zprávu, podrobnosti zapisuje přes `logging` do lokálního `agent.log`; tento soubor není verzován.
 
 ## 6. Tok jednoho požadavku
 
@@ -172,6 +173,9 @@ Konfigurované limity v `config.py`:
 | `MAX_HISTORY_MESSAGES` | 12 | Počet posledních zpráv načítaných z SQLite. |
 | `MAX_FILE_SIZE` | 100 000 bajtů | Maximální počet bajtů načtených nástrojem `read_file`. |
 | `MAX_LIST_FILES` | 500 | Maximální počet položek vrácených nástrojem `list_files`. |
+| `max_retries` | 2 (rozsah 0–5) | Počet opakování po prvním pokusu o HTTP požadavek. |
+| `timeout` | 60 s Groq / 120 s Ollama | Timeout jednoho HTTP požadavku (maximum 300 s). |
+| `MAX_RETRY_DELAY_SECONDS` | 30 s | Horní hranice prodlevy mezi opakovanými požadavky. |
 
 Limity Agent Loop a volání nástrojů jsou nezávislé. Agent může skončit se stavem:
 
@@ -224,17 +228,45 @@ Výsledky nástrojů a mezilehlé zprávy asistenta s `tool_calls` se do SQLite 
 
 Současná paměť je jedna společná historie bez oddělení uživatelů nebo konverzačních vláken. Limit posledních zpráv může uříznout dvojici uživatelské a asistentovy zprávy. Jde o jednoduché řešení pro výukového agenta, nikoliv o víceuživatelskou paměť.
 
-## 10. Testování
+## 10. Kvalita odpovědí a ověřování
 
-- `tests/test_agent.py` ověřuje Agent Loop, přímou odpověď, volání jednoho i více nástrojů, limity, chybové stavy, validaci odpovědi LLM a ukládání historie.
-- `tests/test_llm_clients.py` ověřuje převod interních dat do formátů Groq/Ollama, parsování simulovaných odpovědí a převod síťových chyb na `LLMError`.
+Pravidla kvality odpovědí jsou součástí `SYSTEM_PROMPT` v `config.py`. Model má:
+
+- přiznat nedostatek informací místo vytváření pravděpodobně znějící odpovědi;
+- nevymýšlet si zdroje, citace, data, definice ani jiné konkrétní skutečnosti;
+- rozlišovat informace z kontextu, vlastní odvození a předpoklady;
+- nepovažovat vlastní předchozí odpověď za důkaz a znovu posoudit upozornění uživatele;
+- zkontrolovat všechny relevantní výsledky nástrojů, zejména pokud jich bylo více;
+- netvrdit, že operace uspěla, pokud nástroj vrátil chybu.
+
+### Hranice ověřování
+
+Agent nemá nástroj pro internetové vyhledávání ani přístup k externím zdrojům. Nemůže tedy nezávisle ověřovat obecná faktická tvrzení, aktuální události ani málo známé entity. System prompt může snížit pravděpodobnost sebejistých nepodložených odpovědí, ale nezaručuje jejich odstranění.
+
+Ověření je v současné implementaci omezeno na konkrétní výstupy nástrojů:
+
+- `calculator` provádí výpočty deterministicky v Pythonu;
+- `read_file` vrací skutečný obsah souboru z pracovního prostoru;
+- všechny výsledkové zprávy nástrojů jsou přidány do kontextu následujícího požadavku LLM;
+- testy ověřují, že model obdrží všechny výsledky i při více voláních v jednom cyklu.
+
+Agent neprovádí nezávislou sémantickou kontrolu finální odpovědi. Stav `completed` označuje dokončení Agent Loop textovou odpovědí, nikoliv faktickou správnost. Další kontrolní dotaz stejnému modelu by sám o sobě nepředstavoval nezávislý důkaz.
+
+Konzolová aplikace v `main.py` uživatele při spuštění upozorní, že agent nemá internetové vyhledávání ani externí ověřování.
+
+## 11. Testování
+
+- `tests/test_agent.py` ověřuje Agent Loop, přímou odpověď, volání jednoho i více nástrojů, předání všech výsledků nástrojů, pravidla system promptu, limity, chybové stavy, validaci odpovědi LLM a ukládání historie.
+- `tests/test_llm_clients.py` ověřuje převod interních dat do formátů Groq/Ollama, parsování simulovaných odpovědí, převod síťových chyb na `LLMError` a pravidla opakování HTTP požadavků.
 - `tests/test_tools.py` ověřuje kalkulačku, registr nástrojů, bezpečné zpracování neočekávaných výjimek a omezení přístupu k souborům.
 
 `MockLLMClient` vrací předem připravené `LLMResponse`, zaznamenává požadavky a umožňuje testovat rozhodovací logiku bez skutečného modelu.
 
 Automatické testy adaptérů používají simulované HTTP odpovědi. Nepotvrzují proto aktuální dostupnost Groq ani lokální instalace Ollama. Při aktualizaci API poskytovatele je nutné ověřit také skutečnou komunikaci.
 
-## 11. Bezpečnostní hranice a známá omezení
+Test pravidel system promptu ověřuje pouze to, že instrukce jsou součástí kontextu předaného modelu. Nemůže prokázat, že se jimi model v každé odpovědi řídí.
+
+## 12. Bezpečnostní hranice a známá omezení
 
 - API klíč Groq se načítá z proměnné prostředí; nesmí být vložen do repozitáře.
 - Nástroj pro soubory je omezen na `workspace/` a limit velikosti.
@@ -242,18 +274,20 @@ Automatické testy adaptérů používají simulované HTTP odpovědi. Nepotvrzu
 - Nejsou implementovány obecné shell příkazy ani vykonávání kódu generovaného modelem.
 - Validace cest a symlinků snižuje riziko neoprávněného přístupu, ale sama o sobě není úplným bezpečnostním auditem. Zejména je třeba mít na paměti možné závody mezi kontrolou cesty a otevřením souboru (TOCTOU).
 - Odpověď modelu může být věcně neúplná, i když nástroje proběhnou správně. Příklad: model provedl dva výpočty, ale ve finální odpovědi uvedl pouze druhý výsledek.
+- Model může i přes pravidla system promptu halucinovat. Bez externího vyhledávání agent nedokáže nezávisle ověřovat obecná nebo aktuální fakta.
+- `completed` znamená, že Agent Loop obdržel neprázdnou finální odpověď, nikoliv že byla její faktická správnost ověřena.
 - SQLite paměť je best-effort služba: chyba inicializace, čtení nebo zápisu neblokuje dokončení požadavku. Agent pokračuje bez historie a vrací `memory_warning`; technický detail je dostupný při zapnutém logování.
 - Chyba LLM klienta vede k bezpečnému výsledku `error`; neočekávaná chyba nástroje je převedena na chybový JSON výsledek, takže model může rozhodnout, jak pokračovat. Technické detaily se zaznamenávají přes `logging` do lokálního `agent.log`.
 - Ukládání dvojice uživatelská zpráva + odpověď probíhá atomicky v jedné transakci. Pokud jedna část selže, transakce se vrátí zpět.
 
-## 12. Možný další rozvoj
+## 13. Možný další rozvoj
 
 Následující body jsou návrhy, nikoliv implementované funkce:
 
 1. Strukturované výstupy a validace datových odpovědí modelu.
 2. Přísnější validace interního datového kontraktu a odpovědí adaptérů.
 3. Vylepšení paměti – oddělené konverzace a zachování úplných dvojic zpráv.
-4. Testy kvality finálních odpovědí, zejména úplnosti výsledků po více voláních nástrojů.
+4. Nezávislé ověřování externích faktů pomocí důvěryhodných zdrojů, pokud bude do projektu později přidán odpovídající nástroj.
 5. Další LLM adaptér, pokud bude potřeba, bez změny Agent Loop.
 6. Teprve po dokončení základů jednoho agenta rozšíření na specializovaného programátorského agenta a později na MAS.
 

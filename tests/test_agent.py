@@ -13,7 +13,7 @@ from agent.llm_client import LLMError
 from agent.memory import AgentMemory
 from agent.mock_llm_client import MockLLMClient
 from agent.models import ChatMessage, LLMRequest, LLMResponse, ToolCall
-from config import MAX_AGENT_STEPS
+from config import MAX_AGENT_STEPS, SYSTEM_PROMPT
 
 
 class TestAIAgent(unittest.TestCase):
@@ -38,6 +38,19 @@ class TestAIAgent(unittest.TestCase):
         self.assertEqual(len(client.calls), 1)
         self.assertIsInstance(client.calls[0], LLMRequest)
         self.assertEqual(client.calls[0].messages[-1].content, "Pozdrav mě.")
+
+    def test_system_prompt_defines_answer_quality_and_verification_limits(self) -> None:
+        agent, client = self.make_agent([LLMResponse(content="Rozumím.")])
+        result = agent.run("Jak máš zacházet s nejistými informacemi?")
+
+        self.assertEqual(result.status, "completed")
+        system_message = client.calls[0].messages[0]
+        self.assertEqual(system_message.role, "system")
+        self.assertEqual(system_message.content, SYSTEM_PROMPT)
+        self.assertIn("Nemáš přístup k internetu", SYSTEM_PROMPT)
+        self.assertIn("nezávisle ověřil", SYSTEM_PROMPT)
+        self.assertIn("Nevymýšlej si fakta", SYSTEM_PROMPT)
+        self.assertIn("zohledni všechny výsledky", SYSTEM_PROMPT)
 
     def test_handles_empty_final_answer(self) -> None:
         agent, _ = self.make_agent([LLMResponse(content="  ")])
@@ -97,6 +110,12 @@ class TestAIAgent(unittest.TestCase):
         ]
         self.assertEqual(len(assistant_tool_messages), 1)
         self.assertEqual(len(assistant_tool_messages[0].tool_calls), 2)
+        tool_results = [
+            json.loads(message.content)["result"]
+            for message in second_messages
+            if message.role == "tool"
+        ]
+        self.assertEqual(tool_results, [5.0, 20.0])
 
     def test_rejects_tool_call_with_non_dictionary_arguments(self) -> None:
         call = ToolCall("call-1", "calculator", ["not", "a", "dict"])

@@ -44,6 +44,8 @@ def main() -> None:
 
     print("=" * 50)
     print(f"AI AGENT – POSKYTOVATEL: {LLM_PROVIDER.upper()}")
+    print("Upozornění: Agent nemá internetové vyhledávání ani externí ověřování faktů.")
+    print("U aktuálních nebo nejistých informací si vyžádej důvěryhodný zdroj.")
     print("Pro ukončení napiš: exit")
     print("=" * 50)
 

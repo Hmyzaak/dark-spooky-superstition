@@ -1,6 +1,0 @@
-pip~=24.2
-attrs~=25.4.0
-pillow~=10.4.0
-docutils~=0.21.2
-tornado~=6.5.2
-Jinja2~=3.1.6

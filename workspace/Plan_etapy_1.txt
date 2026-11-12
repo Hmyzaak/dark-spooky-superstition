@@ -1,0 +1,11 @@
+Plán dokončení etapy 1 - obecný experimentální agent:
+1. Stabilizace a vyčištění projektu
+   Bez změny funkční logiky.
+2. Kontrola funkčnosti Agent Loop a Tool Calling
+   Zaměřit se na vícekrokové úkoly a úplnost výsledků.
+3. Praktické testování Groq a Ollama
+   Ověřit reálné chování modelů.
+4. Bezpečnostní scénáře
+   Ověřit práci s nedůvěryhodným obsahem a technické hranice.
+5. Dokumentace a uzavření etapy
+   Stabilní verze připravená pro další rozvoj.

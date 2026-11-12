@@ -15,7 +15,7 @@ GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
-MODEL_NAME = "qwen3:4b"
+MODEL_NAME = "qwen3:1.7b"
 
 MAX_AGENT_STEPS = 8
 MAX_TOOL_CALLS = 12

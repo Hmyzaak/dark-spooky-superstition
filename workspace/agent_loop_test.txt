@@ -1,0 +1,3 @@
+Projekt: Agent Loop
+Testovaci cislo: 7319
+Stav: pripraveno

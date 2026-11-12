@@ -5,7 +5,7 @@
 
 ## Stav aplikace
 
-- Zvolený poskytovatel LLM: `groq`
+- Zvolený poskytovatel LLM: `ollama`
 - Podporovaní poskytovatelé: `groq`, `ollama`
 - Architektura: jeden AI agent s Agent Loop; nejde o MAS.
 

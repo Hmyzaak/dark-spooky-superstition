@@ -7,16 +7,33 @@ from dataclasses import asdict, dataclass
 from typing import Literal
 
 from agent.capabilities import get_agent_capabilities_context
-from agent.llm_client import LLMClient, LLMError
+from agent.llm_client import (
+    LLMClient,
+    LLMError,
+    ProviderError,
+    RateLimitError,
+    ToolValidationError,
+)
 from agent.memory import AgentMemory
 from agent.models import ChatMessage, LLMRequest, LLMResponse, ToolCall
 from agent.tools import TOOL_DEFINITIONS, execute_tool
-from config import MAX_AGENT_STEPS, MAX_TOOL_CALLS, SYSTEM_PROMPT
+from config import (
+    MAX_AGENT_STEPS,
+    MAX_TOOL_CALLS,
+    MAX_TOTAL_TOOL_RESULT_CHARS,
+    SYSTEM_PROMPT,
+)
 
 
 logger = logging.getLogger(__name__)
 
 AgentStatus = Literal["completed", "error", "limit_reached"]
+AgentErrorType = Literal[
+    "tool_validation_error",
+    "rate_limit_error",
+    "provider_error",
+    "tool_execution_error",
+]
 
 _MEMORY_INIT_WARNING = (
     "Paměť konverzace není dostupná. Agent pokračuje bez ukládání historie."
@@ -42,6 +59,8 @@ class AgentResult:
     tool_calls: int
     error: str | None = None
     memory_warning: str | None = None
+    error_type: AgentErrorType | None = None
+    tool_errors: int = 0
 
 
 def to_json(result: AgentResult) -> str:
@@ -85,6 +104,8 @@ class AIAgent:
         clean_input = user_input.strip()
         messages, memory_warning = self._build_messages(clean_input)
         tool_calls_count = 0
+        tool_errors_count = 0
+        tool_context_chars = 0
 
         for _ in range(MAX_AGENT_STEPS):
             try:
@@ -92,6 +113,57 @@ class AIAgent:
                     LLMRequest(messages=messages, tools=TOOL_DEFINITIONS)
                 )
                 self._validate_llm_response(response)
+            except ToolValidationError as exc:
+                logger.warning("Poskytovatel odmítl volání nástroje: %s", exc)
+                return self._finalize_result(
+                    clean_input,
+                    AgentResult(
+                        status="error",
+                        answer=(
+                            "Poskytovatel odmítl volání nástroje kvůli neplatným "
+                            "parametrům nebo schématu."
+                        ),
+                        tool_calls=tool_calls_count,
+                        error=(
+                            "Požadavek obsahoval neplatné volání nástroje. "
+                            "Totožný požadavek nebyl opakován."
+                        ),
+                        error_type="tool_validation_error",
+                        tool_errors=tool_errors_count,
+                    ),
+                    memory_warning=memory_warning,
+                )
+            except RateLimitError as exc:
+                logger.warning("Byl dosažen limit poskytovatele: %s", exc)
+                return self._finalize_result(
+                    clean_input,
+                    AgentResult(
+                        status="error",
+                        answer=(
+                            "Požadavek byl odmítnut kvůli limitu poskytovatele "
+                            "(počet požadavků nebo tokenů)."
+                        ),
+                        tool_calls=tool_calls_count,
+                        error="Limit poskytovatele zůstal překročen i po omezeném počtu opakování.",
+                        error_type="rate_limit_error",
+                        tool_errors=tool_errors_count,
+                    ),
+                    memory_warning=memory_warning,
+                )
+            except ProviderError as exc:
+                logger.warning("Chyba poskytovatele LLM: %s", exc)
+                return self._finalize_result(
+                    clean_input,
+                    AgentResult(
+                        status="error",
+                        answer=_LLM_ERROR_ANSWER,
+                        tool_calls=tool_calls_count,
+                        error="Poskytovatel jazykového modelu vrátil chybu nebo není dostupný.",
+                        error_type="provider_error",
+                        tool_errors=tool_errors_count,
+                    ),
+                    memory_warning=memory_warning,
+                )
             except LLMError as exc:
                 # Podrobnosti zůstávají v logu; uživateli neposíláme surovou
                 # odpověď poskytovatele, která může obsahovat interní údaje.
@@ -103,6 +175,8 @@ class AIAgent:
                         answer=_LLM_ERROR_ANSWER,
                         tool_calls=tool_calls_count,
                         error=_LLM_ERROR_DETAILS,
+                        error_type="provider_error",
+                        tool_errors=tool_errors_count,
                     ),
                     memory_warning=memory_warning,
                 )
@@ -116,6 +190,8 @@ class AIAgent:
                         answer=_LLM_ERROR_ANSWER,
                         tool_calls=tool_calls_count,
                         error=_UNEXPECTED_LLM_ERROR_DETAILS,
+                        error_type="provider_error",
+                        tool_errors=tool_errors_count,
                     ),
                     memory_warning=memory_warning,
                 )
@@ -132,12 +208,36 @@ class AIAgent:
                 remaining_calls = MAX_TOOL_CALLS - tool_calls_count
                 if remaining_calls <= 0:
                     return self._limit_result(
-                        clean_input, tool_calls_count, memory_warning=memory_warning
+                        clean_input,
+                        tool_calls_count,
+                        memory_warning=memory_warning,
+                        tool_errors=tool_errors_count,
                     )
 
                 calls_to_execute = response.tool_calls[:remaining_calls]
                 for tool_call in calls_to_execute:
                     tool_result = self._execute_tool_call(tool_call)
+                    try:
+                        tool_payload = json.loads(tool_result)
+                        if isinstance(tool_payload, dict) and "error" in tool_payload:
+                            tool_errors_count += 1
+                    except (json.JSONDecodeError, TypeError):
+                        tool_errors_count += 1
+
+                    remaining_context = (
+                        MAX_TOTAL_TOOL_RESULT_CHARS - tool_context_chars
+                    )
+                    if len(tool_result) > remaining_context:
+                        compact_error = json.dumps(
+                            {"error": "Výstup vynechán: limit kontextu."},
+                            ensure_ascii=False,
+                        )
+                        tool_result = (
+                            compact_error
+                            if len(compact_error) <= remaining_context
+                            else "{}"
+                        )
+                    tool_context_chars += len(tool_result)
                     messages.append(
                         ChatMessage(
                             role="tool",
@@ -151,7 +251,10 @@ class AIAgent:
                 # Nepovolíme vykonání dalších volání nad nastavený limit.
                 if len(calls_to_execute) < len(response.tool_calls):
                     return self._limit_result(
-                        clean_input, tool_calls_count, memory_warning=memory_warning
+                        clean_input,
+                        tool_calls_count,
+                        memory_warning=memory_warning,
+                        tool_errors=tool_errors_count,
                     )
                 continue
 
@@ -164,6 +267,10 @@ class AIAgent:
                         answer="Jazykový model vrátil prázdnou odpověď.",
                         tool_calls=tool_calls_count,
                         error="Finální odpověď modelu neobsahuje žádný text.",
+                        error_type=(
+                            "tool_execution_error" if tool_errors_count else None
+                        ),
+                        tool_errors=tool_errors_count,
                     ),
                     memory_warning=memory_warning,
                 )
@@ -174,6 +281,8 @@ class AIAgent:
                     status="completed",
                     answer=answer,
                     tool_calls=tool_calls_count,
+                    error_type=("tool_execution_error" if tool_errors_count else None),
+                    tool_errors=tool_errors_count,
                 ),
                 memory_warning=memory_warning,
             )
@@ -183,6 +292,7 @@ class AIAgent:
             tool_calls_count,
             steps=True,
             memory_warning=memory_warning,
+            tool_errors=tool_errors_count,
         )
 
     @staticmethod
@@ -194,10 +304,10 @@ class AIAgent:
         if response.content is not None and not isinstance(response.content, str):
             raise LLMError("LLM klient vrátil neplatný obsah zprávy.")
         if not isinstance(response.tool_calls, list):
-            raise LLMError("LLM klient vrátil neplatný seznam volání nástrojů.")
+            raise ToolValidationError("LLM klient vrátil neplatný seznam volání nástrojů.")
         for tool_call in response.tool_calls:
             if not isinstance(tool_call, ToolCall):
-                raise LLMError("LLM klient vrátil neplatné volání nástroje.")
+                raise ToolValidationError("LLM klient vrátil neplatné volání nástroje.")
             if (
                 not isinstance(tool_call.id, str)
                 or not tool_call.id
@@ -205,7 +315,7 @@ class AIAgent:
                 or not tool_call.name
                 or not isinstance(tool_call.arguments, dict)
             ):
-                raise LLMError("LLM klient vrátil neplatné údaje volání nástroje.")
+                raise ToolValidationError("LLM klient vrátil neplatné údaje volání nástroje.")
 
     @staticmethod
     def _execute_tool_call(tool_call: ToolCall) -> str:
@@ -270,6 +380,7 @@ class AIAgent:
         *,
         steps: bool = False,
         memory_warning: str | None = None,
+        tool_errors: int = 0,
     ) -> AgentResult:
         reason = (
             "Byl dosažen maximální počet rozhodovacích cyklů."
@@ -288,6 +399,8 @@ class AIAgent:
                 answer=answer,
                 tool_calls=tool_calls_count,
                 error=reason,
+                error_type="tool_execution_error" if tool_errors else None,
+                tool_errors=tool_errors,
             ),
             memory_warning=memory_warning,
         )

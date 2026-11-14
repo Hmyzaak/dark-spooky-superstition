@@ -5,7 +5,7 @@
 
 ## Stav aplikace
 
-- Zvolený poskytovatel LLM: `ollama`
+- Zvolený poskytovatel LLM: `groq`
 - Podporovaní poskytovatelé: `groq`, `ollama`
 - Architektura: jeden AI agent s Agent Loop; nejde o MAS.
 
@@ -47,7 +47,7 @@ Parametry (JSON Schema):
 
 ### `list_files`
 
-Vypíše nejvýše 500 souborů ve workspace a oznámí, zda byl seznam zkrácen.
+Vypíše nejvýše 100 souborů ve workspace a oznámí, zda byl seznam zkrácen.
 
 Parametry (JSON Schema):
 
@@ -94,7 +94,7 @@ Parametry (JSON Schema):
 - Maximální počet volání nástrojů v jednom běhu: `12`
 - Počet zpráv historie načítaných z paměti: `12`
 - Maximální velikost čteného souboru: `100000` bajtů
-- Maximální počet položek ve výpisu souborů: `500`
+- Maximální počet položek ve výpisu souborů: `100`
 
 ## Důležitá hranice
 

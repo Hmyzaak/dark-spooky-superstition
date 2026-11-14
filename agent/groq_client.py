@@ -5,7 +5,12 @@ import time
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from agent.llm_client import LLMError
+from agent.llm_client import (
+    LLMError,
+    ProviderError,
+    RateLimitError,
+    ToolValidationError,
+)
 from agent.models import ChatMessage, LLMRequest, LLMResponse, ToolCall, ToolDefinition
 from agent.retry import (
     get_retry_delay,
@@ -151,29 +156,58 @@ class GroqClient:
                     error_message = error_body or "Bez podrobností."
                     error_code = None
 
+                if not isinstance(error_message, str):
+                    error_message = str(error_message)
+
                 details = f"Groq HTTP chyba {exc.code}: {error_message}"
                 if error_code:
                     details += f" (kód: {error_code})"
+
+                normalized_message = error_message.lower()
+                is_tool_validation_error = (
+                    error_code == "tool_use_failed"
+                    or "tool call validation failed" in normalized_message
+                )
+                is_tpm_limit = exc.code == 413 and any(
+                    marker in normalized_message
+                    for marker in ("tokens per minute", "tpm", "token limit")
+                )
+                is_rate_limit = exc.code == 429 or is_tpm_limit
+
+                # Neplatný Tool Calling je chyba konkrétního payloadu.
+                # Totožný požadavek nemá smysl opakovat.
+                if is_tool_validation_error:
+                    raise ToolValidationError(details) from exc
+
+                # Groq může limit TPM vrátit jako HTTP 413. Jde o dočasný
+                # limit, proto použijeme delší exponenciální prodlevu.
+                if is_tpm_limit and attempt < self.max_retries:
+                    retry_after = (
+                        exc.headers.get("Retry-After") if exc.headers else None
+                    )
+                    time.sleep(get_retry_delay(attempt, retry_after, base_delay=10))
+                    continue
 
                 # Opakujeme pouze dočasné HTTP chyby a jen v povoleném limitu.
                 if (
                     not is_retryable_http_status(exc.code)
                     or attempt >= self.max_retries
                 ):
-                    raise LLMError(details) from exc
+                    error_type = RateLimitError if is_rate_limit else ProviderError
+                    raise error_type(details) from exc
 
                 retry_after = exc.headers.get("Retry-After") if exc.headers else None
                 time.sleep(get_retry_delay(attempt, retry_after))
 
             except OSError as exc:
                 if attempt >= self.max_retries:
-                    raise LLMError(
+                    raise ProviderError(
                         "Groq není dostupná nebo vypršel časový limit."
                     ) from exc
                 time.sleep(get_retry_delay(attempt))
 
             except (json.JSONDecodeError, UnicodeDecodeError) as exc:
                 # Chybná data nejsou dočasná síťová chyba; neopakujeme je.
-                raise LLMError("Groq vrátila neplatná data.") from exc
+                raise ProviderError("Groq vrátila neplatná data.") from exc
 
-        raise LLMError("Počet pokusů o komunikaci s Groq byl vyčerpán.")
+        raise ProviderError("Počet pokusů o komunikaci s Groq byl vyčerpán.")

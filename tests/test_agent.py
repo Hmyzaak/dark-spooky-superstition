@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from agent.agent import AIAgent, AgentResult, to_json
-from agent.llm_client import LLMError
+from agent.llm_client import LLMError, RateLimitError, ToolValidationError
 from agent.memory import AgentMemory
 from agent.mock_llm_client import MockLLMClient
 from agent.models import ChatMessage, LLMRequest, LLMResponse, ToolCall
@@ -120,6 +120,30 @@ class TestAIAgent(unittest.TestCase):
         ]
         self.assertEqual(tool_results, [5.0, 20.0])
 
+    def test_limits_total_tool_output_added_to_context(self) -> None:
+        calls = [
+            ToolCall("call-1", "read_file", {"filename": "first.txt"}),
+            ToolCall("call-2", "read_file", {"filename": "second.txt"}),
+        ]
+        agent, client = self.make_agent(
+            [LLMResponse(tool_calls=calls), LLMResponse(content="Dokončeno.")]
+        )
+        oversized_result = json.dumps({"result": "x" * 100})
+
+        with (
+            patch("agent.agent.MAX_TOTAL_TOOL_RESULT_CHARS", 170),
+            patch.object(agent, "_execute_tool_call", return_value=oversized_result),
+        ):
+            result = agent.run("Přečti dva soubory.")
+
+        tool_messages = [
+            message for message in client.calls[1].messages if message.role == "tool"
+        ]
+        self.assertLessEqual(sum(len(message.content) for message in tool_messages), 170)
+        self.assertEqual(result.tool_errors, 0)
+        self.assertIsNone(result.error_type)
+        self.assertIn("limit kontextu", tool_messages[1].content)
+
     def test_rejects_tool_call_with_non_dictionary_arguments(self) -> None:
         call = ToolCall("call-1", "calculator", ["not", "a", "dict"])
         agent, client = self.make_agent([LLMResponse(tool_calls=[call])])
@@ -127,7 +151,7 @@ class TestAIAgent(unittest.TestCase):
 
         self.assertEqual(result.status, "error")
         self.assertEqual(len(client.calls), 1)
-        self.assertEqual(result.error, "Komunikace s jazykovým modelem selhala.")
+        self.assertEqual(result.error_type, "tool_validation_error")
 
     def test_rejects_empty_user_input_without_calling_model(self) -> None:
         agent, client = self.make_agent([])
@@ -145,7 +169,30 @@ class TestAIAgent(unittest.TestCase):
         result = agent.run("Test spojení")
 
         self.assertEqual(result.status, "error")
-        self.assertEqual(result.error, "Komunikace s jazykovým modelem selhala.")
+        self.assertEqual(result.error_type, "provider_error")
+
+    def test_reports_tool_validation_error_separately(self) -> None:
+        class InvalidToolCallClient:
+            def chat(self, request):
+                raise ToolValidationError("Neplatné schéma nástroje.")
+
+        agent = AIAgent(llm_client=InvalidToolCallClient(), memory=self.memory)
+        result = agent.run("Proveď výpočet.")
+
+        self.assertEqual(result.status, "error")
+        self.assertEqual(result.error_type, "tool_validation_error")
+        self.assertIn("neplatným parametrům", result.answer)
+
+    def test_reports_rate_limit_error_separately(self) -> None:
+        class RateLimitedClient:
+            def chat(self, request):
+                raise RateLimitError("TPM limit.")
+
+        agent = AIAgent(llm_client=RateLimitedClient(), memory=self.memory)
+        result = agent.run("Odpověz.")
+
+        self.assertEqual(result.status, "error")
+        self.assertEqual(result.error_type, "rate_limit_error")
 
     def test_handles_unexpected_llm_client_exception(self) -> None:
         class BrokenClient:
@@ -185,6 +232,8 @@ class TestAIAgent(unittest.TestCase):
             result = agent.run("Vyzkoušej chybu nástroje.")
 
         self.assertEqual(result.status, "completed")
+        self.assertEqual(result.error_type, "tool_execution_error")
+        self.assertEqual(result.tool_errors, 1)
         tool_message = next(
             message for message in client.calls[1].messages if message.role == "tool"
         )
@@ -199,7 +248,7 @@ class TestAIAgent(unittest.TestCase):
 
         self.assertEqual(result.status, "error")
         self.assertEqual(len(client.calls), 1)
-        self.assertEqual(result.error, "Komunikace s jazykovým modelem selhala.")
+        self.assertEqual(result.error_type, "tool_validation_error")
 
     def test_mock_client_reports_exhausted_responses(self) -> None:
         client = MockLLMClient([])

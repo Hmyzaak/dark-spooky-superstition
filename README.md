@@ -56,7 +56,7 @@ To není nezávislé ověřování libovolných faktických tvrzení. Model mů�
 
 - Python 3.12 nebo novější;
 - pro výchozí režim `groq` API klíč Groq;
-- pro režim `ollama` lokálně nainstalovaná a spuštěná Ollama a stažený model `qwen3:4b`.
+- pro režim `ollama` lokálně nainstalovaná a spuštěná Ollama a stažený model `qwen3:1.7b`.
 
 Projekt používá pouze standardní knihovnu Pythonu. Nevyžaduje instalaci externích Python balíčků. Soubor `requirements.txt` proto neobsahuje další závislosti.
 
@@ -103,7 +103,7 @@ $env:LLM_PROVIDER = "ollama"
 python main.py
 ```
 
-Ollama musí být spuštěná a model `qwen3:4b` musí být stažený. Výchozí adresa API je `http://localhost:11434/api/chat`.
+Ollama musí být spuštěná a model `qwen3:1.7b` musí být stažený. Výchozí adresa API je `http://localhost:11434/api/chat`.
 
 ### Ukončení aplikace
 
@@ -119,15 +119,15 @@ Agent má aktuálně k dispozici tři nástroje:
 | `list_files` | Výpis souborů v pracovním prostoru | „Vypiš dostupné soubory.“ |
 | `read_file` | Čtení textového souboru z pracovního prostoru | „Přečti example.txt.“ |
 
-Pracovní prostor je adresář `workspace/` v kořenové složce projektu. Čtení souborů je omezeno na tento adresář, odmítá absolutní cesty a cesty obsahující `..`, kontroluje symbolické odkazy a načte nejvýše 100 000 bajtů. Výpis souborů vrací nejvýše 500 položek a informuje, pokud byl seznam zkrácen. Čtení je v UTF-8.
+Pracovní prostor je adresář `workspace/` v kořenové složce projektu. Čtení souborů je omezeno na tento adresář, odmítá absolutní cesty a cesty obsahující `..`, kontroluje symbolické odkazy a načte nejvýše 100 000 bajtů. Výpis souborů vrací nejvýše 100 položek a informuje, pokud byl seznam zkrácen. Výstup jednoho nástroje je omezen na 8 000 znaků a souhrnný výstup nástrojů v jednom běhu na 16 000 znaků; dlouhý výpis nebo obsah souboru se zkrátí s explicitní značkou a při vyčerpání souhrnného limitu se další výstup nahradí stručným upozorněním. Čtení je v UTF-8.
 
 Lokální databáze `agent_memory.db` obsahuje historii konverzace. Je proto uvedena v `.gitignore` společně se soubory SQLite journal/WAL. Pokud už byla databáze dříve přidána do Gitu, samotné `.gitignore` ji z verzování neodstraní; lze ji přestat sledovat příkazem `git rm --cached agent_memory.db` (lokální soubor zůstane zachován).
 
 SQLite paměť je doplňková. Pokud se ji nepodaří inicializovat, načíst nebo do ní uložit výměnu, agent pokračuje bez historie a výsledek obsahuje samostatné pole `memory_warning`. Chyba paměti nemění stav ani text odpovědi modelu. Dvojice uživatelská zpráva + odpověď se ukládá v jedné SQLite transakci.
 
-Chyby komunikace s LLM klientem a neočekávané chyby nástrojů jsou zachyceny na hranici příslušné komponenty. Agent vrací bezpečnou, uživatelsky srozumitelnou zprávu; technické podrobnosti zapisuje standardní modul `logging` do lokálního souboru `agent.log` v kořenové složce projektu. Tento soubor je v `.gitignore`. Neplatná struktura odpovědi modelu je odmítnuta před dalším zpracováním.
+Chyby komunikace jsou kategorizovány jako `tool_validation_error`, `rate_limit_error` a `provider_error`. Výsledek agenta obsahuje diagnostické pole `error_type`; běžný stav `status` zůstává `completed`, `error` nebo `limit_reached`. Chyby při vykonávání nástrojů se vracejí modelu jako strukturovaný JSON s klíčem `error`; výsledek navíc uvádí `tool_errors` a případně `error_type=tool_execution_error`. Neočekávané chyby jsou zachyceny na hranici komponenty. Agent vrací bezpečnou, uživatelsky srozumitelnou zprávu; technické podrobnosti zapisuje standardní modul `logging` do lokálního souboru `agent.log` v kořenové složce projektu. Tento soubor je v `.gitignore`. Neplatná struktura odpovědi modelu je odmítnuta před dalším zpracováním.
 
-Klienti Groq a Ollama opakují pouze dočasné chyby: HTTP 408, 429 a 5xx a síťové chyby typu `OSError`. Výchozí počet opakování je 2 (tedy nejvýše 3 pokusy); povolené nastavení je 0 až 5 opakování. Prodleva používá exponenciální růst od 1 sekundy a je omezena na 30 sekund. Pokud server pošle `Retry-After`, klient tuto hodnotu respektuje, nejvýše však 30 sekund. Chyby 4xx mimo 408 a 429 a chybná JSON data se neopakují. Timeout 60 sekund pro Groq a 120 sekund pro Ollama se vztahuje na jednotlivý HTTP požadavek; konstruktor nedovolí nastavit více než 300 sekund. Nejde o celkový časový limit celého běhu agenta. Opakování síťové chyby může v krajním případě vytvořit další generaci a spotřebovat další API usage, proto je počet opakování omezen.
+Klienti Groq a Ollama opakují pouze dočasné chyby: HTTP 408, 429 a 5xx a síťové chyby typu `OSError`. Groq navíc rozpozná HTTP 413 pouze tehdy, když chybová zpráva indikuje limit TPM; v takovém případě použije delší exponenciální prodlevu od 10 sekund, nejvýše 30 sekund. Ostatní HTTP 413 se neopakuje. Chyba Groq `tool_use_failed` / `Tool call validation failed` se klasifikuje jako `tool_validation_error` a totožný požadavek se neopakuje. Výchozí počet opakování je 2 (tedy nejvýše 3 pokusy); povolené nastavení je 0 až 5 opakování. Běžná prodleva roste od 1 sekundy. Pokud server pošle `Retry-After`, klient tuto hodnotu respektuje, nejvýše však 30 sekund. Chyby 4xx mimo výslovně uvedené dočasné případy a chybná JSON data se neopakují. Timeout 60 sekund pro Groq a 120 sekund pro Ollama se vztahuje na jednotlivý HTTP požadavek; konstruktor nedovolí nastavit více než 300 sekund. Nejde o celkový časový limit celého běhu agenta. Opakování síťové chyby může v krajním případě vytvořit další generaci a spotřebovat další API usage, proto je počet opakování omezen.
 
 Agent nespouští libovolný Python kód ani příkazy operačního systému. Dostupné operace jsou omezené na nástroje registrované v `agent/tools.py`.
 

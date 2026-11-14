@@ -113,13 +113,15 @@ Agent předá adaptéru `LLMRequest` a očekává normalizovaný `LLMResponse`. 
 ### Ollama – `agent/llm_client.py`
 
 - Je volitelným lokálním adaptérem.
-- Používá výchozí endpoint `http://localhost:11434/api/chat` a model `qwen3:4b`.
+- Používá výchozí endpoint `http://localhost:11434/api/chat` a model `qwen3:1.7b`.
 - Převádí interní datové struktury na formát Ollama Chat API.
 - Pokud odpověď Ollama neobsahuje ID volání nástroje, adaptér vytvoří lokální identifikátor.
 
 ### Chyby komunikace
 
-`LLMError` je společná výjimka pro chyby komunikace s jazykovým modelem a neplatné odpovědi poskytovatele. Adaptéry zpracovávají HTTP chyby, síťové chyby typu `OSError`, timeouty a chybná JSON data. Modul `agent/retry.py` centralizuje politiku opakování: opakují se HTTP 408, 429, 5xx a síťové chyby `OSError`; běžné klientské chyby 4xx a chybná JSON data se neopakují. Výchozí `max_retries=2` znamená nejvýše tři pokusy, konstruktor povoluje rozsah 0 až 5 opakování. Prodleva je exponenciální (1, 2, 4, 8... sekund), s maximem 30 sekund. Platná hlavička `Retry-After` má přednost před vypočtenou prodlevou, ale i její hodnota je omezena na 30 sekund. Timeout se vztahuje na jednotlivý HTTP požadavek a jeho povolený rozsah je větší než 0 a nejvýše 300 sekund. Opakování POST požadavku při nejednoznačném stavu sítě může v krajním případě vytvořit další generaci a spotřebovat další API usage; počet opakování je proto omezen. Agent navíc omezuje běh na `MAX_AGENT_STEPS` a `MAX_TOOL_CALLS`, zachytává neočekávané výjimky cizího LLM klienta a kontroluje typ i základní strukturu `LLMResponse` před jejím zpracováním. Uživateli vrací obecnou zprávu, podrobnosti zapisuje přes `logging` do lokálního `agent.log`; tento soubor není verzován.
+`LLMError` je základní výjimka. Specializované podtypy `ToolValidationError`, `RateLimitError` a `ProviderError` rozlišují odmítnuté volání nástroje, limit poskytovatele a ostatní chyby API. Adaptér Groq klasifikuje `tool_use_failed` / `Tool call validation failed` jako `ToolValidationError`. Tuto chybu nikdy neopakuje, protože opakování stejného payloadu by nepomohlo. HTTP 429 je limit poskytovatele; HTTP 413 je jako limit TPM klasifikováno a opakováno pouze tehdy, když tělo chyby obsahuje indikaci `tokens per minute`, `TPM` nebo `token limit`. Obecná HTTP 413 se neopakuje. Pro TPM chybu se používá exponenciální prodleva 10, 20 a nejvýše 30 sekund. Modul `agent/retry.py` jinak centralizuje politiku opakování: HTTP 408, 429, 5xx a síťové chyby `OSError`; běžné klientské chyby 4xx a chybná JSON data se neopakují. Výchozí `max_retries=2` znamená nejvýše tři pokusy, konstruktor povoluje rozsah 0 až 5 opakování. Běžná prodleva je exponenciální (1, 2, 4, 8... sekund), s maximem 30 sekund. Platná hlavička `Retry-After` má přednost před vypočtenou prodlevou, ale i její hodnota je omezena na 30 sekund. Timeout se vztahuje na jednotlivý HTTP požadavek a jeho povolený rozsah je větší než 0 a nejvýše 300 sekund. Opakování POST požadavku při nejednoznačném stavu sítě může v krajním případě vytvořit další generaci a spotřebovat další API usage; počet opakování je proto omezen.
+
+`AgentResult.status` zůstává beze změny. Pole `error_type` doplňuje diagnostickou kategorii (`tool_validation_error`, `rate_limit_error`, `provider_error`, případně `tool_execution_error`). Chyby vykonávání nástrojů se standardně vracejí modelu jako JSON s klíčem `error`; `tool_errors` počítá neúspěšné výsledky. Pokud model na chybu nástroje naváže úspěšnou odpovědí, může být `status="completed"` současně s `error_type="tool_execution_error"`; tato kombinace znamená, že Agent Loop doběhl, ale některý nástroj selhal.
 
 ## 6. Tok jednoho požadavku
 
@@ -175,7 +177,9 @@ Konfigurované limity v `config.py`:
 | `MAX_TOOL_CALLS` | 12 | Maximální počet vykonaných volání nástrojů v jednom běhu. |
 | `MAX_HISTORY_MESSAGES` | 12 | Počet posledních zpráv načítaných z SQLite. |
 | `MAX_FILE_SIZE` | 100 000 bajtů | Maximální počet bajtů načtených nástrojem `read_file`. |
-| `MAX_LIST_FILES` | 500 | Maximální počet položek vrácených nástrojem `list_files`. |
+| `MAX_LIST_FILES` | 100 | Maximální počet položek vrácených nástrojem `list_files`. |
+| `MAX_TOOL_RESULT_CHARS` | 8 000 | Maximální délka jednoho serializovaného výstupu nástroje před zkrácením. |
+| `MAX_TOTAL_TOOL_RESULT_CHARS` | 16 000 | Souhrnný limit výsledků nástrojů v jednom běhu Agent Loop. |
 | `max_retries` | 2 (rozsah 0–5) | Počet opakování po prvním pokusu o HTTP požadavek. |
 | `timeout` | 60 s Groq / 120 s Ollama | Timeout jednoho HTTP požadavku (maximum 300 s). |
 | `MAX_RETRY_DELAY_SECONDS` | 30 s | Horní hranice prodlevy mezi opakovanými požadavky. |
@@ -200,11 +204,11 @@ Podporuje operace `add`, `subtract`, `multiply` a `divide`. Kontroluje typ a roz
 
 ### `list_files`
 
-Vrací objekt obsahující relativní cesty souborů v `workspace/`, příznak `truncated` a použitý limit `max_results`. Vrací nejvýše `MAX_LIST_FILES` položek. Symbolické odkazy na soubory i adresáře ignoruje, aby výpis nepřecházel mimo pracovní prostor.
+Vrací objekt obsahující relativní cesty souborů v `workspace/`, příznak `truncated` a použitý limit `max_results`. Vrací nejvýše `MAX_LIST_FILES` položek. Symbolické odkazy na soubory i adresáře ignoruje, aby výpis nepřecházel mimo pracovní prostor. `execute_tool()` navíc omezuje serializovaný výsledek na `MAX_TOOL_RESULT_CHARS`; u seznamu souborů zkracuje počet položek a nastavuje `output_truncated=true`. Agent omezuje také součet všech výsledků nástrojů v jednom běhu na `MAX_TOTAL_TOOL_RESULT_CHARS`; po vyčerpání rozpočtu předá modelu stručnou informaci místo dalšího velkého výstupu.
 
 ### `read_file`
 
-Čte textový soubor v UTF-8 z `workspace/`. Kontroluje relativní cestu, zakazuje absolutní cesty, průchod do nadřazeného adresáře a symbolické odkazy. Obsah načítá binárně nejvýše do `MAX_FILE_SIZE + 1` bajtů a překročení limitu odmítne. Na systémech podporujících `O_NOFOLLOW` navíc odmítne symbolický odkaz v poslední komponentě při samotném otevření souboru. Tato ochrana neřeší všechny možné závody při souběžné změně nadřazených adresářů jiným lokálním procesem.
+Čte textový soubor v UTF-8 z `workspace/`. Kontroluje relativní cestu, zakazuje absolutní cesty, průchod do nadřazeného adresáře a symbolické odkazy. Obsah načítá binárně nejvýše do `MAX_FILE_SIZE + 1` bajtů a překročení limitu odmítne. Na systémech podporujících `O_NOFOLLOW` navíc odmítne symbolický odkaz v poslední komponentě při samotném otevření souboru. Výstup předaný modelu se zkrátí na `MAX_TOOL_RESULT_CHARS` a nese explicitní informaci o zkrácení. Souhrnný rozpočet výstupů v jednom Agent Loop navíc omezuje `MAX_TOTAL_TOOL_RESULT_CHARS`. Tato ochrana neřeší všechny možné závody při souběžné změně nadřazených adresářů jiným lokálním procesem.
 
 ### Registr a vykonání
 

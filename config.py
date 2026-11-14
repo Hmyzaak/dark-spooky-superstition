@@ -21,7 +21,10 @@ MAX_AGENT_STEPS = 8
 MAX_TOOL_CALLS = 12
 MAX_HISTORY_MESSAGES = 12
 MAX_FILE_SIZE = 100_000
-MAX_LIST_FILES = 500
+# Výpis souborů je určen jako orientační přehled pro LLM, nikoli jako export.
+MAX_LIST_FILES = 100
+MAX_TOOL_RESULT_CHARS = 8_000
+MAX_TOTAL_TOOL_RESULT_CHARS = 16_000
 
 # Deklarace schopností aplikace. CAPABILITIES.md se generuje z těchto údajů
 # a skutečného registru nástrojů v agent/tools.py.

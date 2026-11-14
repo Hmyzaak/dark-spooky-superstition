@@ -159,6 +159,40 @@ class TestFileAccess(unittest.TestCase):
         self.assertEqual(payload["result"]["files"], ["example.txt"])
         self.assertFalse(payload["result"]["truncated"])
 
+    def test_list_files_tool_output_respects_character_limit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            for index in range(20):
+                (workspace / f"file_{index:03}.txt").write_text("x", encoding="utf-8")
+
+            with (
+                patch("agent.tools.WORKSPACE_DIR", workspace),
+                patch("agent.tools.MAX_LIST_FILES", 20),
+                patch("agent.tools.MAX_TOOL_RESULT_CHARS", 180),
+            ):
+                serialized = execute_tool("list_files", {})
+
+        self.assertLessEqual(len(serialized), 180)
+        payload = json.loads(serialized)
+        self.assertTrue(payload["result"]["truncated"])
+        self.assertTrue(payload["result"]["output_truncated"])
+
+    def test_read_file_tool_output_is_truncated_as_valid_json(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            (workspace / "long.txt").write_text("x" * 500, encoding="utf-8")
+
+            with (
+                patch("agent.tools.WORKSPACE_DIR", workspace),
+                patch("agent.tools.MAX_TOOL_RESULT_CHARS", 160),
+            ):
+                serialized = execute_tool("read_file", {"filename": "long.txt"})
+
+        self.assertLessEqual(len(serialized), 160)
+        payload = json.loads(serialized)
+        self.assertTrue(payload["truncated"])
+        self.assertIn("Obsah zkrácen", payload["result"])
+
     def test_list_files_skips_symbolic_links(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

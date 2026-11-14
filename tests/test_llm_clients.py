@@ -8,7 +8,12 @@ from urllib.error import HTTPError
 from unittest.mock import MagicMock, patch
 
 from agent.groq_client import GroqClient
-from agent.llm_client import LLMError, OllamaClient
+from agent.llm_client import (
+    LLMError,
+    OllamaClient,
+    RateLimitError,
+    ToolValidationError,
+)
 from agent.models import ChatMessage, LLMRequest, ToolCall, ToolDefinition
 from agent.retry import (
     MAX_HTTP_TIMEOUT_SECONDS,
@@ -27,6 +32,14 @@ def make_http_error(status_code: int, retry_after: str | None = None) -> HTTPErr
     if retry_after is not None:
         headers["Retry-After"] = retry_after
     body = b'{"error": {"message": "temporary failure"}}'
+    return HTTPError(
+        "https://example.test/api", status_code, "Test error", headers, BytesIO(body)
+    )
+
+
+def make_groq_error(status_code: int, message: str, code: str | None = None) -> HTTPError:
+    headers = Message()
+    body = json.dumps({"error": {"message": message, "code": code}}).encode()
     return HTTPError(
         "https://example.test/api", status_code, "Test error", headers, BytesIO(body)
     )
@@ -141,6 +154,62 @@ class TestGroqClient(unittest.TestCase):
         mock_urlopen.assert_called_once()
         mock_sleep.assert_not_called()
 
+    @patch("agent.groq_client.time.sleep")
+    @patch("agent.groq_client.urlopen", side_effect=make_groq_error(
+        400, "Tool call validation failed", "tool_use_failed"
+    ))
+    def test_tool_validation_error_is_not_retried(self, mock_urlopen, mock_sleep) -> None:
+        client = GroqClient(api_key="test-key", max_retries=2)
+
+        with self.assertRaises(ToolValidationError):
+            client.chat(LLMRequest(messages=[]))
+
+        mock_urlopen.assert_called_once()
+        mock_sleep.assert_not_called()
+
+    @patch("agent.groq_client.time.sleep")
+    @patch("agent.groq_client.urlopen")
+    def test_retries_groq_tpm_http_413(self, mock_urlopen, mock_sleep) -> None:
+        client = GroqClient(api_key="test-key", max_retries=1)
+        mock_urlopen.side_effect = [
+            make_groq_error(413, "Request too large for tokens per minute (TPM)"),
+            make_http_response({"choices": [{"message": {"content": "Hotovo"}}]}),
+        ]
+
+        result = client.chat(LLMRequest(messages=[]))
+
+        self.assertEqual(result.content, "Hotovo")
+        self.assertEqual(mock_urlopen.call_count, 2)
+        mock_sleep.assert_called_once_with(10.0)
+
+    @patch("agent.groq_client.time.sleep")
+    @patch(
+        "agent.groq_client.urlopen",
+        side_effect=[
+            make_groq_error(413, "Request exceeds tokens per minute (TPM)"),
+            make_groq_error(413, "Request exceeds tokens per minute (TPM)"),
+        ],
+    )
+    def test_reports_tpm_error_after_retry_budget_is_exhausted(
+        self, mock_urlopen, mock_sleep
+    ) -> None:
+        client = GroqClient(api_key="test-key", max_retries=1)
+
+        with self.assertRaises(RateLimitError):
+            client.chat(LLMRequest(messages=[]))
+
+        self.assertEqual(mock_urlopen.call_count, 2)
+        mock_sleep.assert_called_once_with(10.0)
+
+    @patch("agent.groq_client.urlopen", side_effect=make_groq_error(
+        413, "Payload too large"
+    ))
+    def test_does_not_classify_generic_http_413_as_rate_limit(self, mock_urlopen) -> None:
+        from agent.llm_client import ProviderError
+
+        with self.assertRaises(ProviderError):
+            self.client.chat(LLMRequest(messages=[]))
+
     def test_requires_api_key(self) -> None:
         with patch("agent.groq_client.GROQ_API_KEY", ""):
             with self.assertRaises(ValueError):
@@ -250,6 +319,8 @@ class TestRetryPolicy(unittest.TestCase):
         self.assertEqual(get_retry_delay(0), 1.0)
         self.assertEqual(get_retry_delay(1), 2.0)
         self.assertEqual(get_retry_delay(10), float(MAX_RETRY_DELAY_SECONDS))
+        self.assertEqual(get_retry_delay(0, base_delay=10), 10.0)
+        self.assertEqual(get_retry_delay(1, base_delay=10), 20.0)
 
     def test_retry_after_is_used_and_capped(self) -> None:
         self.assertEqual(get_retry_delay(0, "4"), 4.0)

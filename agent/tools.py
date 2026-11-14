@@ -10,7 +10,12 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 
 from agent.models import ToolDefinition
-from config import MAX_FILE_SIZE, MAX_LIST_FILES, WORKSPACE_DIR
+from config import (
+    MAX_FILE_SIZE,
+    MAX_LIST_FILES,
+    MAX_TOOL_RESULT_CHARS,
+    WORKSPACE_DIR,
+)
 
 
 def calculator(operation: str, a: int | float, b: int | float) -> float:
@@ -162,7 +167,7 @@ TOOL_DEFINITIONS: list[ToolDefinition] = [
     ToolDefinition(
         name="list_files",
         description=(
-            "Vypíše nejvýše 500 souborů ve workspace a oznámí, "
+            f"Vypíše nejvýše {MAX_LIST_FILES} souborů ve workspace a oznámí, "
             "zda byl seznam zkrácen."
         ),
         parameters={"type": "object", "properties": {}},
@@ -196,8 +201,49 @@ def execute_tool(name: str, arguments: dict[str, Any]) -> str:
 
     try:
         result = AVAILABLE_TOOLS[name](**arguments)
+        payload = {"result": result}
+
+        serialized = json.dumps(payload, ensure_ascii=False, allow_nan=False)
+        if len(serialized) <= MAX_TOOL_RESULT_CHARS:
+            return serialized
+
+        # Velký výpis souborů zkrátíme po položkách a zachováme platný JSON.
+        if name == "list_files" and isinstance(result, dict):
+            files = list(result.get("files", []))
+            while files:
+                files.pop()
+                shortened = {
+                    "result": {
+                        **result,
+                        "files": files,
+                        "truncated": True,
+                        "output_truncated": True,
+                    }
+                }
+                serialized = json.dumps(shortened, ensure_ascii=False)
+                if len(serialized) <= MAX_TOOL_RESULT_CHARS:
+                    return serialized
+
+        # Dlouhý text souboru dostane explicitní značku zkrácení.
+        if name == "read_file" and isinstance(result, str):
+            marker = "\n\n[Obsah zkrácen kvůli limitu velikosti výstupu nástroje.]"
+            available_chars = max(0, MAX_TOOL_RESULT_CHARS // 2)
+            while available_chars >= 0:
+                shortened = {
+                    "result": result[:available_chars] + marker,
+                    "truncated": True,
+                    "max_chars": available_chars,
+                }
+                serialized = json.dumps(shortened, ensure_ascii=False)
+                if len(serialized) <= MAX_TOOL_RESULT_CHARS:
+                    return serialized
+                if available_chars == 0:
+                    break
+                available_chars //= 2
+
         return json.dumps(
-            {"result": result}, ensure_ascii=False, allow_nan=False
+            {"error": "Výstup nástroje překročil povolenou velikost."},
+            ensure_ascii=False,
         )
     except (TypeError, ValueError, OSError, OverflowError) as exc:
         return json.dumps({"error": str(exc)}, ensure_ascii=False)

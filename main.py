@@ -73,6 +73,10 @@ def main() -> None:
             print(f"\nAgent: {result.answer}")
             print(f"Stav: {result.status}")
             print(f"Použité nástroje: {result.tool_calls}")
+            if result.error_type:
+                print(f"Kategorie chyby: {result.error_type}")
+            if result.tool_errors:
+                print(f"Neúspěšná volání nástrojů: {result.tool_errors}")
             if result.error:
                 print(f"Chyba: {result.error}")
             if result.memory_warning:

@@ -25,6 +25,18 @@ class LLMError(Exception):
     """Chyba při komunikaci s jazykovým modelem nebo při parsování odpovědi."""
 
 
+class ToolValidationError(LLMError):
+    """Poskytovatel odmítl neplatné volání nástroje nebo jeho schéma."""
+
+
+class RateLimitError(LLMError):
+    """Poskytovatel odmítl požadavek kvůli limitu požadavků nebo tokenů."""
+
+
+class ProviderError(LLMError):
+    """Obecná chyba API nebo poskytovatele jazykového modelu."""
+
+
 class LLMClient(Protocol):
     """Rozhraní společné pro všechny poskytovatele jazykových modelů."""
 
@@ -158,19 +170,20 @@ class OllamaClient:
                     not is_retryable_http_status(exc.code)
                     or attempt >= self.max_retries
                 ):
-                    raise LLMError(f"Ollama HTTP chyba: {exc.code}") from exc
+                    error_type = RateLimitError if exc.code == 429 else ProviderError
+                    raise error_type(f"Ollama HTTP chyba: {exc.code}") from exc
 
                 time.sleep(get_retry_delay(attempt, retry_after))
 
             except OSError as exc:
                 if attempt >= self.max_retries:
-                    raise LLMError(
+                    raise ProviderError(
                         "Ollama není dostupná nebo vypršel časový limit."
                     ) from exc
                 time.sleep(get_retry_delay(attempt))
 
             except (json.JSONDecodeError, UnicodeDecodeError) as exc:
                 # Chybná data nejsou dočasná síťová chyba; neopakujeme je.
-                raise LLMError("Ollama vrátila neplatná data.") from exc
+                raise ProviderError("Ollama vrátila neplatná data.") from exc
 
-        raise LLMError("Počet pokusů o komunikaci s Ollama byl vyčerpán.")
+        raise ProviderError("Počet pokusů o komunikaci s Ollama byl vyčerpán.")

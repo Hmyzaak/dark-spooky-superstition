@@ -39,7 +39,12 @@ def is_retryable_http_status(status_code: int) -> bool:
     return status_code in RETRYABLE_HTTP_STATUS_CODES or 500 <= status_code <= 599
 
 
-def get_retry_delay(attempt: int, retry_after: str | None = None) -> float:
+def get_retry_delay(
+    attempt: int,
+    retry_after: str | None = None,
+    *,
+    base_delay: float = 1.0,
+) -> float:
     """Určí omezenou prodlevu; přednost má platná hlavička Retry-After."""
 
     if retry_after:
@@ -60,4 +65,4 @@ def get_retry_delay(attempt: int, retry_after: str | None = None) -> float:
         except (TypeError, ValueError, OverflowError):
             pass
 
-    return float(min(2**attempt, MAX_RETRY_DELAY_SECONDS))
+    return float(min(base_delay * (2**attempt), MAX_RETRY_DELAY_SECONDS))

@@ -1,135 +1,155 @@
 # AI Agent
 
-Jednoduchý konzolový AI agent v Pythonu. Projekt slouží jako praktický základ pro pochopení fungování AI agenta: komunikuje s jazykovým modelem, podle potřeby volá dostupné nástroje a ukládá historii konverzace do SQLite.
+Jednoduchý konzolový AI agent v Pythonu. Projekt je výukovým a experimentálním základem pro pochopení Agent Loop, volání nástrojů, komunikace s jazykovým modelem a ukládání historie do SQLite.
 
-Aktuální implementace používá provider-neutrální datový kontrakt. Agent proto nepracuje přímo s formátem API Groq nebo Ollama; převod zajišťují samostatné adaptéry.
+Agent používá provider-neutrální datový kontrakt. Rozhodovací logika proto není přímo svázána s formátem API konkrétního poskytovatele. Převod požadavků a odpovědí zajišťují samostatné adaptéry.
 
-## Stav projektu
+## Aktuální stav projektu
 
 **Implementováno:**
 
-- konzolová konverzace v češtině;
-- Agent Loop s omezeným počtem rozhodovacích kroků;
-- volání nástrojů `calculator`, `list_files` a `read_file`;
-- samostatný limit počtu volání nástrojů;
-- interní datový kontrakt založený na `dataclass`;
-- adaptéry pro Groq Chat Completions API a lokální Ollama API;
-- simulovaný LLM klient pro deterministické testování;
-- dlouhodobé ukládání uživatelských a finálních odpovědí do SQLite;
-- pokračování agenta i při nedostupnosti SQLite paměti s upozorněním uživatele;
-- atomické ukládání uživatelského vstupu a odpovědi v jedné transakci;
-- zachytávání neočekávaných chyb LLM klienta a nástrojů;
-- ověřování struktury odpovědi modelu před zpracováním volání nástrojů;
-- převod síťových chyb poskytovatelů na společnou výjimku `LLMError`;
-- omezené opakování dočasných HTTP a síťových chyb;
-- respektování hlavičky `Retry-After` a exponenciální prodlevy s horním limitem;
-- pravidla system promptu pro práci s nejistotou, faktickými tvrzeními a výsledky nástrojů;
-- upozornění uživatele, že agent nemá internetové vyhledávání ani externí ověřování;
-- automatické generování `CAPABILITIES.md` z konfigurace a registru nástrojů a předání aktuálního katalogu modelu.
+- konzolové rozhraní pro konverzaci v češtině;
+- Agent Loop s limitem počtu požadavků na jazykový model;
+- samostatný limit počtu vykonaných volání nástrojů;
+- provider-neutrální datové třídy pro zprávy, požadavky, odpovědi a volání nástrojů;
+- adaptéry pro Groq Chat Completions API a lokální Ollama Chat API;
+- deterministický `MockLLMClient` pro testování bez skutečného LLM;
+- nástroje `calculator`, `list_files` a `read_file`;
+- omezená práce se soubory v adresáři `workspace/`;
+- SQLite historie konverzace;
+- pokračování běhu i při nedostupnosti paměti, s upozorněním ve výsledku;
+- atomické uložení uživatelského vstupu a finální odpovědi v jedné transakci;
+- validace základní struktury odpovědí LLM a volání nástrojů;
+- kategorizace chyb LLM a nástrojů;
+- omezené opakování vybraných dočasných HTTP a síťových chyb;
+- generování katalogu `CAPABILITIES.md` z konfigurace a registru nástrojů;
+- automatické testy Agent Loop, adaptérů, paměti a nástrojů.
 
-**Prakticky ověřeno v rámci vývoje:**
+**Stav ověření tohoto archivu:**
 
-- přímá odpověď modelu přes Groq;
-- použití kalkulačky a zpracování jejího výsledku;
-- dvě volání nástroje v jednom rozhodovacím cyklu;
-- výpis souborů a čtení `workspace/example.txt`;
-- uchování historie po ukončení a opětovném spuštění aplikace.
+- automatická sada: **74 testů úspěšných**;
+- `python -m compileall -q agent tests main.py config.py`: dokončeno s návratovým kódem 0;
+- testy používají mocky a simulované HTTP odpovědi; samy o sobě nepotvrzují aktuální dostupnost Groq ani lokální instalace Ollama.
 
-**Známé omezení:** při testu dvou navazujících výpočtů agent provedl oba výpočty správně, ale v konečné odpovědi uvedl pouze druhý výsledek. Provedení nástrojů tedy samo o sobě nezaručuje úplnost závěrečné odpovědi modelu.
+**Známá omezení:**
 
-## Kvalita odpovědí a ověřování
+- Agent je jediná instance AI agenta, nikoliv multiagentní systém (MAS).
+- Nemá internetové vyhledávání ani nástroj pro nezávislé ověřování externích faktů.
+- Nemá nástroj pro zápis nebo úpravu souborů.
+- Nemá nástroj pro spouštění shell příkazů, Python kódu ani automatických testů jiného projektu.
+- Nemá samostatný plánovač úloh, evidenci důkazů o provedených akcích ani nezávislou kontrolu splnění zadání.
+- Stav `completed` znamená, že Agent Loop obdržel neprázdnou finální textovou odpověď. Neprokazuje správnost odpovědi ani úplné splnění požadavku.
+- System prompt model instruuje, aby pracoval s nejistotou a výsledky nástrojů správně, ale samotná instrukce toto chování nezaručuje.
 
-System prompt v `config.py` vede model k tomu, aby nepřítomnost znalostí nezakrýval domněnkami, nevymýšlel si zdroje a rozlišoval fakta od odhadů. Pokud uživatel upozorní na chybu, model má odpověď znovu posoudit, nikoliv automaticky obhajovat předchozí tvrzení nebo bez posouzení přijmout novou informaci.
+## Architektura v kostce
 
-Agent nemá internetové vyhledávání. Nemůže proto nezávisle ověřovat aktuální události, málo známé osoby, pořady, produkty ani jiné externí skutečnosti. V těchto případech má přiznat nejistotu a požádat o důvěryhodný zdroj nebo upřesnění. Samotná instrukce v system promptu ale halucinace neodstraní a není zárukou faktické správnosti.
+Hlavní části aplikace mají oddělené odpovědnosti:
 
-Ověření se v této verzi opírá o omezené a konkrétní mechanismy:
+- `agent/agent.py` řídí Agent Loop a sestavuje kontext konverzace.
+- `agent/models.py` definuje interní datový kontrakt.
+- `agent/llm_client.py` obsahuje protokol `LLMClient`, společné výjimky a adaptér Ollama.
+- `agent/groq_client.py` implementuje adaptér Groq.
+- `agent/tools.py` registruje a vykonává povolené nástroje.
+- `agent/memory.py` ukládá historii do SQLite.
+- `agent/retry.py` sjednocuje politiku opakování HTTP požadavků.
+- `config.py` obsahuje konfiguraci, provozní limity a system prompt.
+- `main.py` je vstupním bodem konzolové aplikace.
 
-- `calculator` vrací deterministicky vypočtený výsledek; model má převzít jeho hodnotu, nikoliv ji odhadovat;
-- `read_file` poskytuje skutečný obsah souboru; tvrzení o něm mají vycházet z tohoto výstupu;
-- při více voláních nástrojů jsou všechny jejich výsledky předány modelu v kontextu a system prompt požaduje jejich úplné vyhodnocení;
-- automatické testy ověřují, že výsledky nástrojů byly do dalšího požadavku modelu skutečně vloženy.
-
-To není nezávislé ověřování libovolných faktických tvrzení. Model může i přes instrukce vynechat výsledek nebo vytvořit nesprávné tvrzení. Stav `completed` znamená, že model vrátil konečnou textovou odpověď; neznamená, že její fakta byla nezávisle ověřena.
+Podrobnosti jsou v dokumentu [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ## Požadavky
 
-- Python 3.12 nebo novější;
-- pro výchozí režim `groq` API klíč Groq;
-- pro režim `ollama` lokálně nainstalovaná a spuštěná Ollama a stažený model `qwen3:1.7b`.
+- Python 3.12 nebo novější.
+- Pro výchozí režim `groq`: API klíč Groq.
+- Pro režim `ollama`: lokálně nainstalovaná a spuštěná Ollama a stažený model `qwen3:1.7b`.
 
-Projekt používá pouze standardní knihovnu Pythonu. Nevyžaduje instalaci externích Python balíčků. Soubor `requirements.txt` proto neobsahuje další závislosti.
+Projekt používá standardní knihovnu Pythonu. `requirements.txt` je proto prázdný a není nutné instalovat externí Python balíčky.
 
 ## Instalace – Windows / PowerShell
 
-V kořenové složce projektu vytvoř virtuální prostředí a aktivuj ho:
+V kořenové složce projektu vytvoř a aktivuj virtuální prostředí:
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 ```
 
-Není nutné instalovat další balíčky. Pokud PowerShell blokuje aktivaci skriptu, lze postupovat podle nastavení Execution Policy ve Windows; není potřeba měnit zdrojový kód aplikace.
+Není nutné instalovat další balíčky.
 
 ## Konfigurace a spuštění
 
 ### Groq – výchozí poskytovatel
 
-Aplikace načítá API klíč z proměnné prostředí `GROQ_API_KEY`. Pokud je klíč uložen v uživatelských nebo systémových proměnných prostředí Windows, není potřeba žádný `.env` soubor ani knihovna `python-dotenv`. Po změně proměnných prostředí otevři nový terminál nebo znovu spusť PyCharm.
+Výchozí poskytovatel je `groq`. API klíč se načítá z proměnné prostředí `GROQ_API_KEY`.
 
-Pro jednorázové nastavení pouze v aktuálním okně PowerShellu lze použít:
+Pro jednorázové nastavení v aktuálním okně PowerShellu:
 
 ```powershell
 $env:GROQ_API_KEY = "tvuj_api_klic"
 python main.py
 ```
 
-Klíč nikdy nevkládej přímo do zdrojového kódu ani do verzovacího systému.
-
-Výchozí model je `openai/gpt-oss-120b`. Model lze změnit proměnnou prostředí:
+Výchozí model je `openai/gpt-oss-120b`. Lze jej změnit proměnnou prostředí:
 
 ```powershell
-$env:GROQ_MODEL = "openai/gpt-oss-120b"
+$env:GROQ_MODEL = "nazev_modelu"
 ```
 
-Proměnné prostředí nastavené příkazem `$env:` platí pro aktuální relaci PowerShellu. Po otevření nového terminálu je případně nastav znovu.
+API klíč nevkládej do zdrojového kódu ani do verzovacího systému. Není potřeba `.env` soubor ani knihovna `python-dotenv`.
 
 ### Ollama – lokální alternativa
 
-Nastav poskytovatele:
+Nastav poskytovatele a spusť aplikaci:
 
 ```powershell
 $env:LLM_PROVIDER = "ollama"
 python main.py
 ```
 
-Ollama musí být spuštěná a model `qwen3:1.7b` musí být stažený. Výchozí adresa API je `http://localhost:11434/api/chat`.
+Ollama musí běžet lokálně a model `qwen3:1.7b` musí být stažený. Výchozí API endpoint je `http://localhost:11434/api/chat`.
 
-### Ukončení aplikace
+### Ukončení
 
-V konzoli napiš `exit`, `quit` nebo `konec`. Aplikaci lze ukončit také pomocí `Ctrl+C`.
+V konzoli zadej `exit`, `quit` nebo `konec`. Aplikaci lze ukončit také pomocí `Ctrl+C`.
 
-## Používání nástrojů
+## Dostupné nástroje
 
-Agent má aktuálně k dispozici tři nástroje:
-
-| Nástroj | Účel | Příklad požadavku |
+| Nástroj | Funkce | Omezení |
 |---|---|---|
-| `calculator` | Sčítání, odčítání, násobení a dělení | „Vypočítej 125 * 48.“ |
-| `list_files` | Výpis souborů v pracovním prostoru | „Vypiš dostupné soubory.“ |
-| `read_file` | Čtení textového souboru z pracovního prostoru | „Přečti example.txt.“ |
+| `calculator` | Sčítání, odčítání, násobení a dělení | Nepodporuje mocniny ani odmocniny. |
+| `list_files` | Výpis souborů ve `workspace/` | Vrací nejvýše 100 položek. |
+| `read_file` | Čtení textového souboru z `workspace/` | UTF-8, nejvýše 100 000 bajtů před zkrácením výstupu. |
 
-Pracovní prostor je adresář `workspace/` v kořenové složce projektu. Čtení souborů je omezeno na tento adresář, odmítá absolutní cesty a cesty obsahující `..`, kontroluje symbolické odkazy a načte nejvýše 100 000 bajtů. Výpis souborů vrací nejvýše 100 položek a informuje, pokud byl seznam zkrácen. Výstup jednoho nástroje je omezen na 8 000 znaků a souhrnný výstup nástrojů v jednom běhu na 16 000 znaků; dlouhý výpis nebo obsah souboru se zkrátí s explicitní značkou a při vyčerpání souhrnného limitu se další výstup nahradí stručným upozorněním. Čtení je v UTF-8.
+### Pracovní prostor a limity výstupů
 
-Lokální databáze `agent_memory.db` obsahuje historii konverzace. Je proto uvedena v `.gitignore` společně se soubory SQLite journal/WAL. Pokud už byla databáze dříve přidána do Gitu, samotné `.gitignore` ji z verzování neodstraní; lze ji přestat sledovat příkazem `git rm --cached agent_memory.db` (lokální soubor zůstane zachován).
+Pracovní prostor je adresář `workspace/` v kořeni projektu. Nástroje odmítají absolutní cesty, průchod do nadřazených adresářů a symbolické odkazy. Výpis souborů ignoruje symbolické odkazy na soubory i adresáře.
 
-SQLite paměť je doplňková. Pokud se ji nepodaří inicializovat, načíst nebo do ní uložit výměnu, agent pokračuje bez historie a výsledek obsahuje samostatné pole `memory_warning`. Chyba paměti nemění stav ani text odpovědi modelu. Dvojice uživatelská zpráva + odpověď se ukládá v jedné SQLite transakci.
+Výstup jednoho nástroje je omezen na 8 000 znaků. Souhrnný rozpočet výstupů nástrojů v jednom běhu Agent Loop je 16 000 znaků. Dlouhý výstup může být zkrácen a opatřen informací o zkrácení. Při vyčerpání souhrnného limitu se další výstup nahradí stručnou chybovou informací.
 
-Chyby komunikace jsou kategorizovány jako `tool_validation_error`, `rate_limit_error` a `provider_error`. Výsledek agenta obsahuje diagnostické pole `error_type`; běžný stav `status` zůstává `completed`, `error` nebo `limit_reached`. Chyby při vykonávání nástrojů se vracejí modelu jako strukturovaný JSON s klíčem `error`; výsledek navíc uvádí `tool_errors` a případně `error_type=tool_execution_error`. Neočekávané chyby jsou zachyceny na hranici komponenty. Agent vrací bezpečnou, uživatelsky srozumitelnou zprávu; technické podrobnosti zapisuje standardní modul `logging` do lokálního souboru `agent.log` v kořenové složce projektu. Tento soubor je v `.gitignore`. Neplatná struktura odpovědi modelu je odmítnuta před dalším zpracováním.
+Ochrana cest a symbolických odkazů snižuje riziko přístupu mimo workspace, ale není úplným bezpečnostním auditem. Neřeší všechny možné závody při souběžné změně adresářů jiným lokálním procesem.
 
-Klienti Groq a Ollama opakují pouze dočasné chyby: HTTP 408, 429 a 5xx a síťové chyby typu `OSError`. Groq navíc rozpozná HTTP 413 pouze tehdy, když chybová zpráva indikuje limit TPM; v takovém případě použije delší exponenciální prodlevu od 10 sekund, nejvýše 30 sekund. Ostatní HTTP 413 se neopakuje. Chyba Groq `tool_use_failed` / `Tool call validation failed` se klasifikuje jako `tool_validation_error` a totožný požadavek se neopakuje. Výchozí počet opakování je 2 (tedy nejvýše 3 pokusy); povolené nastavení je 0 až 5 opakování. Běžná prodleva roste od 1 sekundy. Pokud server pošle `Retry-After`, klient tuto hodnotu respektuje, nejvýše však 30 sekund. Chyby 4xx mimo výslovně uvedené dočasné případy a chybná JSON data se neopakují. Timeout 60 sekund pro Groq a 120 sekund pro Ollama se vztahuje na jednotlivý HTTP požadavek; konstruktor nedovolí nastavit více než 300 sekund. Nejde o celkový časový limit celého běhu agenta. Opakování síťové chyby může v krajním případě vytvořit další generaci a spotřebovat další API usage, proto je počet opakování omezen.
+### SQLite paměť
 
-Agent nespouští libovolný Python kód ani příkazy operačního systému. Dostupné operace jsou omezené na nástroje registrované v `agent/tools.py`.
+Databáze `agent_memory.db` se vytvoří automaticky v kořenovém adresáři projektu. Uchovává uživatelské zprávy a finální odpovědi asistenta. Výsledky nástrojů a mezilehlé zprávy se do databáze neukládají.
+
+Paměť je doplňková služba. Pokud se ji nepodaří inicializovat, načíst nebo do ní uložit výměnu, agent pokračuje a vrací samostatné upozornění `memory_warning`. Historie je v této verzi společná a není rozdělena na uživatele nebo konverzační vlákna.
+
+Databáze a soubory SQLite journal/WAL jsou uvedeny v `.gitignore`, protože mohou obsahovat soukromou historii. Pokud již byly dříve přidány do Gitu, samotné `.gitignore` je z verzování neodstraní.
+
+## Chyby a opakování požadavků
+
+Výsledek agenta obsahuje stav `status` a doplňující diagnostická pole:
+
+- `completed` – model vrátil neprázdnou finální textovou odpověď;
+- `error` – běh skončil chybou;
+- `limit_reached` – byl dosažen limit kroků nebo volání nástrojů;
+- `error_type` – diagnostická kategorie chyby, pokud je relevantní;
+- `tool_errors` – počet neúspěšných výsledků nástrojů;
+- `memory_warning` – upozornění na problém s pamětí.
+
+Je možné, že `status="completed"` bude současně s `error_type="tool_execution_error"`. Znamená to, že Agent Loop doběhl do finální odpovědi, ale nejméně jeden nástroj selhal. Neznamená to, že požadavek uživatele byl splněn.
+
+Klienti opakují pouze vybrané dočasné chyby: HTTP 408, 429, 5xx a síťové chyby `OSError`. Groq navíc rozpoznává HTTP 413 jako limit TPM pouze tehdy, když text chyby obsahuje odpovídající indikaci. Chyby validace volání nástrojů se neopakují. Výchozí `max_retries=2` znamená nejvýše tři pokusy. Prodleva je omezená a může respektovat hlavičku `Retry-After`. Timeout se vztahuje na jednotlivý HTTP požadavek, nikoliv na celý běh agenta.
 
 ## Testování
 
@@ -145,71 +165,61 @@ Kontrola syntaxe a kompilace:
 python -m compileall -q agent tests main.py config.py
 ```
 
-Testy používají `MockLLMClient` nebo simulované HTTP odpovědi. Nevyžadují skutečný API klíč ani běžící Ollama. Úspěšný běh automatických testů proto ověřuje především interní logiku a převody dat; sám o sobě nepotvrzuje dostupnost externí služby.
+Testy využívají `MockLLMClient`, dočasné soubory a simulované HTTP odpovědi. Nepotřebují skutečný API klíč ani běžící Ollama. Ověřují interní logiku, nikoliv aktuální dostupnost externích služeb nebo spolehlivost konkrétního jazykového modelu.
 
-Sada obsahuje 65 jednotkových testů. Testy používají dočasné soubory a simulované odpovědi; skutečné chování Groq a Ollama je nutné ověřovat samostatně. Test system promptu ověřuje přítomnost pravidel kvality odpovědí; nemůže prokázat, že se jimi jazykový model vždy řídí.
+Test system promptu ověřuje přítomnost instrukcí v kontextu předaném modelu. Nemůže dokázat, že se jimi model bude vždy řídit.
 
 ## Struktura projektu
 
 ```text
- dark-spooky-superstition/
- ├── agent/
- │   ├── __init__.py
- │   ├── agent.py
- │   ├── capabilities.py
- │   ├── groq_client.py
- │   ├── llm_client.py
- │   ├── memory.py
- │   ├── mock_llm_client.py
- │   ├── models.py
- │   ├── retry.py
- │   └── tools.py
- ├── tests/
- │   ├── test_agent.py
- │   ├── test_capabilities.py
- │   ├── test_llm_clients.py
- │   └── test_tools.py
- ├── workspace/
- │   ├── example.txt
- │   └── example_pi.txt
- ├── scripts/
- │   ├── __init__.py
- │   └── generate_capabilities.py
- ├── config.py
- ├── main.py
- ├── requirements.txt
- ├── README.md
- ├── ARCHITECTURE.md
- └── CAPABILITIES.md  (generovaný soubor)
+project-root/
+├── agent/
+│   ├── __init__.py
+│   ├── agent.py
+│   ├── capabilities.py
+│   ├── groq_client.py
+│   ├── llm_client.py
+│   ├── memory.py
+│   ├── mock_llm_client.py
+│   ├── models.py
+│   ├── retry.py
+│   └── tools.py
+├── scripts/
+│   ├── __init__.py
+│   └── generate_capabilities.py
+├── tests/
+│   ├── test_agent.py
+│   ├── test_capabilities.py
+│   ├── test_llm_clients.py
+│   └── test_tools.py
+├── workspace/
+│   ├── agent_loop_test.txt
+│   ├── Plan_etapy_1.txt
+│   └── security_test.txt
+├── config.py
+├── main.py
+├── requirements.txt
+├── README.md
+├── ARCHITECTURE.md
+└── CAPABILITIES.md
 ```
 
-Databáze `agent_memory.db` se vytvoří automaticky při prvním spuštění. Není součástí zdrojové struktury a její obsah je lokální stav aplikace.
+Databáze, log `agent.log` a další lokální provozní soubory vznikají až při běhu aplikace a nejsou součástí této struktury zdrojových souborů.
 
-## Dokumentace a katalog schopností
+## Katalog schopností
 
-- [`ARCHITECTURE.md`](ARCHITECTURE.md) – technický popis komponent, datového kontraktu a toku požadavku.
-- [`CAPABILITIES.md`](CAPABILITIES.md) – automaticky generovaný přehled dostupných nástrojů, funkcí a omezení.
-
-`CAPABILITIES.md` se aktualizuje při každém spuštění aplikace. Lze jej také
-vygenerovat samostatně příkazem:
+`CAPABILITIES.md` je generovaný soubor. Vzniká z konfigurace v `config.py` a registru i definic nástrojů v `agent/tools.py`. Lze jej aktualizovat příkazem:
 
 ```powershell
 python -m scripts.generate_capabilities
 ```
 
-Zdroj pravdy tvoří Python konfigurace v `config.py` a skutečný registr i
-provider-neutrální definice nástrojů v `agent/tools.py`. Názvy, popisy a JSON
-Schema nástrojů se do katalogu přebírají z registru/definic, provozní limity
-z konfigurace. Agent dostává aktuální katalog přímo z těchto Python zdrojů
-jako doplněk system message; nespoléhá na ručně upravovaný ani potenciálně
-zastaralý obsah souboru. Vygenerovaný Markdown slouží jako čitelná dokumentace
-pro uživatele a vývojáře.
+Aplikace se při spuštění pokusí katalog aktualizovat. Pokud zápis selže, může pokračovat; aktuální katalog pro model sestavuje přímo z Python zdrojů. Ruční změny v `CAPABILITIES.md` nemění oprávnění agenta.
 
-`README.md` a `ARCHITECTURE.md` jsou dokumentace pro lidi. Nejsou automaticky
-vkládány celé do kontextu LLM: obsahují podrobnosti, které nejsou potřeba při
-každém požadavku. Jejich technický popis musí být udržován v souladu s kódem;
-konkrétní seznam runtime schopností má přednostně vycházet z `CAPABILITIES.md`.
+## Hranice a další rozvoj
 
-## Aktuální hranice projektu
+Tento projekt je výchozím experimentálním agentem. Není hotovým programátorským agentem a není MAS. Neumí bezpečně zapisovat a upravovat soubory, spouštět testy projektů ani ověřovat jejich výsledky. Tyto schopnosti vyžadují samostatný návrh bezpečnostních pravidel, nástrojů a evidence provedených akcí.
 
-Projekt je výukovým základem jednoho AI agenta, nikoliv hotovým multiagentním systémem. Zatím neobsahuje koordinátora více agentů, plánovač úloh, webové rozhraní, GUI ani automatické spouštění testů vytvořeného softwaru. Tyto možnosti patří do budoucího rozvoje a nejsou součástí aktuálně ověřené funkčnosti.
+Budoucí rozvoj může zahrnovat bezpečný zápis souborů, řízené spouštění testů, strukturovanou evidenci volání nástrojů a důkazů, diagnostiku chyb a teprve později koordinaci specializovaných agentů. Jde o plánovaný rozvoj, nikoliv o funkce aktuální verze.
+
+Projekt AI agenta a případné aplikace, které bude agent vyvíjet (například Magnum Opus), musí zůstat samostatnými softwarovými projekty.

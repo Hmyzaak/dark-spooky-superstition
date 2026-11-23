@@ -1,0 +1,357 @@
+<mxfile host="Electron" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/28.0.4 Chrome/138.0.7204.97 Electron/37.2.1 Safari/537.36" version="28.0.4" pages="2">
+  <diagram name="Aktivity" id="5lKsW4LsrSkgZpDYP1Rw">
+    <mxGraphModel dx="969" dy="604" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-1" value="act [AIAgent.run – Agent Loop]" style="shape=umlFrame;whiteSpace=wrap;html=1;pointerEvents=0;fillColor=none;strokeColor=#000000;width=240;height=26;fontStyle=1;fontSize=12;" parent="1" vertex="1">
+          <mxGeometry width="1340" height="1444" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-2" value="" style="ellipse;html=1;fillColor=#000000;strokeColor=#000000;" parent="1" vertex="1">
+          <mxGeometry x="558" y="56" width="24" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-3" value="Vstup je neprázdný řetězec?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000;fontSize=10;spacing=0;" parent="1" vertex="1">
+          <mxGeometry x="445" y="108" width="250" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-4" value="AgentResult(status = error): „Požadavek nesmí být prázdný.“ (bez uložení do paměti)" style="rounded=1;arcSize=25;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000;fontSize=11;" parent="1" vertex="1">
+          <mxGeometry x="860" y="120" width="300" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-5" value="" style="ellipse;html=1;shape=endState;fillColor=#000000;strokeColor=#000000;" parent="1" vertex="1">
+          <mxGeometry x="997" y="218" width="26" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-6" value="Sestavit kontext (_build_messages): system prompt + katalog schopností + historie z paměti + vstup. Chyba paměti nezastaví běh, jen nastaví memory_warning" style="rounded=1;arcSize=25;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000;fontSize=11;" parent="1" vertex="1">
+          <mxGeometry x="410" y="213" width="320" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-7" value="Nastavit čítače: tool_calls = 0, tool_errors = 0, kontext nástrojů = 0" style="rounded=1;arcSize=25;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000;fontSize=11;" parent="1" vertex="1">
+          <mxGeometry x="410" y="318" width="320" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-8" value="" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000;" parent="1" vertex="1">
+          <mxGeometry x="555" y="403" width="30" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-9" value="Zbývá další krok? (krok &lt; MAX_AGENT_STEPS)" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000;fontSize=10;spacing=0;" parent="1" vertex="1">
+          <mxGeometry x="445" y="448" width="250" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-10" value="AgentResult(status = limit_reached): dosažen max. počet rozhodovacích cyklů" style="rounded=1;arcSize=25;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000;fontSize=11;" parent="1" vertex="1">
+          <mxGeometry x="50" y="460" width="260" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-11" value="Odeslat LLMRequest(zprávy, TOOL_DEFINITIONS): llm.chat() a ověřit odpověď (_validate_llm_response)" style="rounded=1;arcSize=25;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000;fontSize=11;" parent="1" vertex="1">
+          <mxGeometry x="410" y="568" width="320" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-12" value="Došlo k výjimce při volání LLM?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000;fontSize=10;spacing=0;" parent="1" vertex="1">
+          <mxGeometry x="445" y="668" width="250" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-13" value="AgentResult(status = error): error_type = tool_validation_error | rate_limit_error | provider_error" style="rounded=1;arcSize=25;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000;fontSize=11;" parent="1" vertex="1">
+          <mxGeometry x="50" y="678" width="260" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-14" value="Odpověď obsahuje tool_calls?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000;fontSize=10;spacing=0;" parent="1" vertex="1">
+          <mxGeometry x="445" y="788" width="250" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-15" value="Odpověď obsahuje neprázdný text?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000;fontSize=10;spacing=0;" parent="1" vertex="1">
+          <mxGeometry x="445" y="908" width="250" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-16" value="AgentResult(status = error): „Jazykový model vrátil prázdnou odpověď.“" style="rounded=1;arcSize=25;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000;fontSize=11;" parent="1" vertex="1">
+          <mxGeometry x="50" y="920" width="260" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-17" value="AgentResult(status = completed); error_type = tool_execution_error, pokud tool_errors &gt; 0" style="rounded=1;arcSize=25;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000;fontSize=11;" parent="1" vertex="1">
+          <mxGeometry x="410" y="1028" width="320" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-18" value="" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000;" parent="1" vertex="1">
+          <mxGeometry x="555" y="1128" width="30" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-19" value="Uložit výměnu do paměti: save_exchange(vstup, answer) (_finalize_result). Při chybě uložení doplnit memory_warning" style="rounded=1;arcSize=25;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000;fontSize=11;" parent="1" vertex="1">
+          <mxGeometry x="410" y="1198" width="320" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-20" value="Vrátit AgentResult volajícímu" style="rounded=1;arcSize=25;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000;fontSize=11;" parent="1" vertex="1">
+          <mxGeometry x="410" y="1308" width="320" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-21" value="" style="ellipse;html=1;shape=endState;fillColor=#000000;strokeColor=#000000;" parent="1" vertex="1">
+          <mxGeometry x="557" y="1388" width="26" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-22" value="Přidat zprávu role assistant s tool_calls do kontextu" style="rounded=1;arcSize=25;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000;fontSize=11;" parent="1" vertex="1">
+          <mxGeometry x="860" y="800" width="300" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-23" value="Zbývá limit MAX_TOOL_CALLS?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000;fontSize=10;spacing=0;" parent="1" vertex="1">
+          <mxGeometry x="885" y="898" width="250" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-24" value="«iterative» pro každé z povolených volání nástroje" style="rounded=1;arcSize=6;dashed=1;whiteSpace=wrap;html=1;fillColor=none;verticalAlign=top;align=left;spacingLeft=8;spacingTop=3;fontSize=10;fontStyle=2;" parent="1" vertex="1">
+          <mxGeometry x="870" y="1018" width="280" height="240" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-25" value="Vykonat execute_tool(name, arguments)" style="rounded=1;arcSize=25;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000;fontSize=11;" parent="1" vertex="1">
+          <mxGeometry x="890" y="1058" width="240" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-26" value="Vyhodnotit výsledek: chybu započítat do tool_errors; výstup omezit rozpočtem MAX_TOTAL_TOOL_RESULT_CHARS" style="rounded=1;arcSize=25;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000;fontSize=11;" parent="1" vertex="1">
+          <mxGeometry x="890" y="1118" width="240" height="68" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-27" value="Přidat zprávu role tool; tool_calls = tool_calls + 1" style="rounded=1;arcSize=25;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000;fontSize=11;" parent="1" vertex="1">
+          <mxGeometry x="890" y="1200" width="240" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-28" value="Vynechána volání nad limit?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000;fontSize=10;spacing=0;" parent="1" vertex="1">
+          <mxGeometry x="885" y="1278" width="250" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-29" value="" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000;" parent="1" vertex="1">
+          <mxGeometry x="745" y="1063" width="30" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-30" value="AgentResult(status = limit_reached): limit volání nástrojů" style="rounded=1;arcSize=25;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000;fontSize=11;" parent="1" vertex="1">
+          <mxGeometry x="630" y="1108" width="170" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-31" value="" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" parent="1" source="r9wG_i_LG7BpZKWYPvn8-2" target="r9wG_i_LG7BpZKWYPvn8-3" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-32" value="[ne]" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" parent="1" source="r9wG_i_LG7BpZKWYPvn8-3" target="r9wG_i_LG7BpZKWYPvn8-4" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-33" value="" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" parent="1" source="r9wG_i_LG7BpZKWYPvn8-4" target="r9wG_i_LG7BpZKWYPvn8-5" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-34" value="[ano]" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" parent="1" source="r9wG_i_LG7BpZKWYPvn8-3" target="r9wG_i_LG7BpZKWYPvn8-6" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-35" value="" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" parent="1" source="r9wG_i_LG7BpZKWYPvn8-6" target="r9wG_i_LG7BpZKWYPvn8-7" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-36" value="" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" parent="1" source="r9wG_i_LG7BpZKWYPvn8-7" target="r9wG_i_LG7BpZKWYPvn8-8" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-37" value="" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" parent="1" source="r9wG_i_LG7BpZKWYPvn8-8" target="r9wG_i_LG7BpZKWYPvn8-9" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-38" value="[ne]" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" parent="1" source="r9wG_i_LG7BpZKWYPvn8-9" target="r9wG_i_LG7BpZKWYPvn8-10" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-39" value="[ano]" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" parent="1" source="r9wG_i_LG7BpZKWYPvn8-9" target="r9wG_i_LG7BpZKWYPvn8-11" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-40" value="" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" parent="1" source="r9wG_i_LG7BpZKWYPvn8-11" target="r9wG_i_LG7BpZKWYPvn8-12" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-41" value="[ano]" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" parent="1" source="r9wG_i_LG7BpZKWYPvn8-12" target="r9wG_i_LG7BpZKWYPvn8-13" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-42" value="[ne]" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" parent="1" source="r9wG_i_LG7BpZKWYPvn8-12" target="r9wG_i_LG7BpZKWYPvn8-14" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-43" value="[ne]" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" parent="1" source="r9wG_i_LG7BpZKWYPvn8-14" target="r9wG_i_LG7BpZKWYPvn8-15" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-44" value="[ne]" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" parent="1" source="r9wG_i_LG7BpZKWYPvn8-15" target="r9wG_i_LG7BpZKWYPvn8-16" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-45" value="[ano]" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" parent="1" source="r9wG_i_LG7BpZKWYPvn8-15" target="r9wG_i_LG7BpZKWYPvn8-17" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-46" value="" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" parent="1" source="r9wG_i_LG7BpZKWYPvn8-17" target="r9wG_i_LG7BpZKWYPvn8-18" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-47" value="" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" parent="1" source="r9wG_i_LG7BpZKWYPvn8-10" target="r9wG_i_LG7BpZKWYPvn8-18" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="30" y="488" />
+              <mxPoint x="30" y="1143" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-48" value="" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" parent="1" source="r9wG_i_LG7BpZKWYPvn8-13" target="r9wG_i_LG7BpZKWYPvn8-18" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="30" y="713" />
+              <mxPoint x="30" y="1143" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-49" value="" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" parent="1" source="r9wG_i_LG7BpZKWYPvn8-16" target="r9wG_i_LG7BpZKWYPvn8-18" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="30" y="948" />
+              <mxPoint x="30" y="1143" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-50" value="" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" parent="1" source="r9wG_i_LG7BpZKWYPvn8-18" target="r9wG_i_LG7BpZKWYPvn8-19" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-51" value="" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" parent="1" source="r9wG_i_LG7BpZKWYPvn8-19" target="r9wG_i_LG7BpZKWYPvn8-20" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-52" value="" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" parent="1" source="r9wG_i_LG7BpZKWYPvn8-20" target="r9wG_i_LG7BpZKWYPvn8-21" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-53" value="[ano]" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" parent="1" source="r9wG_i_LG7BpZKWYPvn8-14" target="r9wG_i_LG7BpZKWYPvn8-22" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-54" value="" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" parent="1" source="r9wG_i_LG7BpZKWYPvn8-22" target="r9wG_i_LG7BpZKWYPvn8-23" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-55" value="[ano]" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" parent="1" source="r9wG_i_LG7BpZKWYPvn8-23" target="r9wG_i_LG7BpZKWYPvn8-24" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-56" value="[ne]" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" parent="1" source="r9wG_i_LG7BpZKWYPvn8-23" target="r9wG_i_LG7BpZKWYPvn8-29" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="760" y="938" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-57" value="" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" parent="1" source="r9wG_i_LG7BpZKWYPvn8-24" target="r9wG_i_LG7BpZKWYPvn8-28" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-58" value="" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" parent="1" source="r9wG_i_LG7BpZKWYPvn8-25" target="r9wG_i_LG7BpZKWYPvn8-26" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-59" value="" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" parent="1" source="r9wG_i_LG7BpZKWYPvn8-26" target="r9wG_i_LG7BpZKWYPvn8-27" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-60" value="[ano]" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" parent="1" source="r9wG_i_LG7BpZKWYPvn8-28" target="r9wG_i_LG7BpZKWYPvn8-29" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="830" y="1318" />
+              <mxPoint x="830" y="1078" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-61" value="" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.765;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" parent="1" source="r9wG_i_LG7BpZKWYPvn8-29" target="r9wG_i_LG7BpZKWYPvn8-30" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-62" value="" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" parent="1" source="r9wG_i_LG7BpZKWYPvn8-30" target="r9wG_i_LG7BpZKWYPvn8-18" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-63" value="[ne]" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" parent="1" source="r9wG_i_LG7BpZKWYPvn8-28" target="r9wG_i_LG7BpZKWYPvn8-8" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1310" y="1318" />
+              <mxPoint x="1310" y="418" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-64" value="Každý výsledek kromě odmítnutého prázdného vstupu prochází metodou _finalize_result, která ukládá výměnu do paměti (včetně chybových a limitních výsledků)." style="shape=note;whiteSpace=wrap;html=1;size=14;align=left;verticalAlign=top;spacing=6;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" parent="1" vertex="1">
+          <mxGeometry x="50" y="1208" width="300" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="r9wG_i_LG7BpZKWYPvn8-65" value="status = completed znamená pouze to, že model vrátil neprázdný text. Neprokazuje správnost odpovědi ani splnění celého zadání." style="shape=note;whiteSpace=wrap;html=1;size=14;align=left;verticalAlign=top;spacing=6;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" parent="1" vertex="1">
+          <mxGeometry x="50" y="1318" width="300" height="80" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="L6BxQCMKe-d2J6uQMHpQ" name="Stavy">
+    <mxGraphModel dx="969" dy="604" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="dpZ8G8vXYJGocMSPSgQd-1" value="stm [Běh AIAgent.run]" style="shape=umlFrame;whiteSpace=wrap;html=1;pointerEvents=0;fillColor=none;strokeColor=#000000;width=177;height=26;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry width="1620" height="816" as="geometry" />
+        </mxCell>
+        <mxCell id="dpZ8G8vXYJGocMSPSgQd-2" value="" style="ellipse;html=1;fillColor=#000000;strokeColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="289" y="94" width="22" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="dpZ8G8vXYJGocMSPSgQd-3" value="" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="280" y="206" width="40" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="dpZ8G8vXYJGocMSPSgQd-4" value="&lt;b&gt;Příprava kontextu&lt;/b&gt;&lt;hr size=&#39;1&#39;&gt;do / _build_messages(): system prompt + katalog schopností + historie + vstup" style="rounded=1;arcSize=20;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000;fontSize=11;fontSize=10;align=center;" vertex="1" parent="1">
+          <mxGeometry x="190" y="307" width="220" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="dpZ8G8vXYJGocMSPSgQd-5" value="&lt;b&gt;Čekání na odpověď LLM&lt;/b&gt;&lt;hr size=&#39;1&#39;&gt;do / llm.chat(LLMRequest); _validate_llm_response()" style="rounded=1;arcSize=20;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000;fontSize=11;fontSize=10;align=center;" vertex="1" parent="1">
+          <mxGeometry x="490" y="307" width="240" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="dpZ8G8vXYJGocMSPSgQd-6" value="" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="830" y="332" width="40" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="dpZ8G8vXYJGocMSPSgQd-7" value="&lt;b&gt;Vykonávání nástrojů&lt;/b&gt;&lt;hr size=&#39;1&#39;&gt;do / execute_tool() pro povolená volání; započítat tool_errors" style="rounded=1;arcSize=20;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000;fontSize=11;fontSize=10;align=center;" vertex="1" parent="1">
+          <mxGeometry x="735" y="116" width="230" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="dpZ8G8vXYJGocMSPSgQd-8" value="" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="1020" y="141" width="40" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="dpZ8G8vXYJGocMSPSgQd-9" value="" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="830" y="456" width="40" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="dpZ8G8vXYJGocMSPSgQd-10" value="&lt;b&gt;Ukládání výměny&lt;/b&gt;&lt;hr size=&#39;1&#39;&gt;do / save_exchange(vstup, answer); při chybě memory_warning" style="rounded=1;arcSize=20;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#000000;fontSize=11;fontSize=10;align=center;" vertex="1" parent="1">
+          <mxGeometry x="490" y="646" width="240" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="dpZ8G8vXYJGocMSPSgQd-11" value="" style="ellipse;html=1;shape=endState;fillColor=#000000;strokeColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="330" y="677" width="28" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="dpZ8G8vXYJGocMSPSgQd-12" value="" style="ellipse;html=1;shape=endState;fillColor=#000000;strokeColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="96" y="526" width="28" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="dpZ8G8vXYJGocMSPSgQd-13" value="" style="html=1;rounded=0;endArrow=open;endSize=10;labelBackgroundColor=#FFFFFF;fontSize=10;" edge="1" parent="1" source="dpZ8G8vXYJGocMSPSgQd-2" target="dpZ8G8vXYJGocMSPSgQd-3">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="161" y="106" as="sourcePoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="dpZ8G8vXYJGocMSPSgQd-14" value="[neprázdný vstup]" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" edge="1" parent="1" source="dpZ8G8vXYJGocMSPSgQd-3" target="dpZ8G8vXYJGocMSPSgQd-4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="dpZ8G8vXYJGocMSPSgQd-15" value="[prázdný vstup] / AgentResult(error)" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" edge="1" parent="1" source="dpZ8G8vXYJGocMSPSgQd-3" target="dpZ8G8vXYJGocMSPSgQd-12">
+          <mxGeometry x="-0.0638" relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="110" y="226" />
+            </Array>
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="dpZ8G8vXYJGocMSPSgQd-16" value="/ čítače = 0" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" edge="1" parent="1" source="dpZ8G8vXYJGocMSPSgQd-4" target="dpZ8G8vXYJGocMSPSgQd-5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="dpZ8G8vXYJGocMSPSgQd-17" value="[odpověď platná]" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" edge="1" parent="1" source="dpZ8G8vXYJGocMSPSgQd-5" target="dpZ8G8vXYJGocMSPSgQd-6">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="dpZ8G8vXYJGocMSPSgQd-18" value="[výjimka LLM] / AgentResult(error)" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" edge="1" parent="1" source="dpZ8G8vXYJGocMSPSgQd-5" target="dpZ8G8vXYJGocMSPSgQd-10">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="dpZ8G8vXYJGocMSPSgQd-19" value="[tool_calls ∧ zbývá limit]" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" edge="1" parent="1" source="dpZ8G8vXYJGocMSPSgQd-6" target="dpZ8G8vXYJGocMSPSgQd-7">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="dpZ8G8vXYJGocMSPSgQd-20" value="[tool_calls ∧ limit vyčerpán] / AgentResult(limit_reached)" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.667;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" edge="1" parent="1" source="dpZ8G8vXYJGocMSPSgQd-6" target="dpZ8G8vXYJGocMSPSgQd-10">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1120" y="352" />
+              <mxPoint x="1120" y="706" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="dpZ8G8vXYJGocMSPSgQd-21" value="[bez tool_calls]" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" edge="1" parent="1" source="dpZ8G8vXYJGocMSPSgQd-6" target="dpZ8G8vXYJGocMSPSgQd-9">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="dpZ8G8vXYJGocMSPSgQd-22" value="[neprázdný text] / AgentResult(completed)" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=1;entryY=0.333;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" edge="1" parent="1" source="dpZ8G8vXYJGocMSPSgQd-9" target="dpZ8G8vXYJGocMSPSgQd-10">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="850" y="676" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="dpZ8G8vXYJGocMSPSgQd-23" value="[prázdný text] / AgentResult(error)" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.75;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" edge="1" parent="1" source="dpZ8G8vXYJGocMSPSgQd-9" target="dpZ8G8vXYJGocMSPSgQd-10">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="670" y="476" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="dpZ8G8vXYJGocMSPSgQd-24" value="" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" edge="1" parent="1" source="dpZ8G8vXYJGocMSPSgQd-7" target="dpZ8G8vXYJGocMSPSgQd-8">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="dpZ8G8vXYJGocMSPSgQd-25" value="[krok &amp;lt; MAX_AGENT_STEPS]" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" edge="1" parent="1" source="dpZ8G8vXYJGocMSPSgQd-8" target="dpZ8G8vXYJGocMSPSgQd-5">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1040" y="56" />
+              <mxPoint x="610" y="56" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="dpZ8G8vXYJGocMSPSgQd-26" value="[limit volání ∨ limit kroků] / AgentResult(limit_reached)" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" edge="1" parent="1" source="dpZ8G8vXYJGocMSPSgQd-8" target="dpZ8G8vXYJGocMSPSgQd-10">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1220" y="161" />
+              <mxPoint x="1220" y="786" />
+              <mxPoint x="610" y="786" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="dpZ8G8vXYJGocMSPSgQd-27" value="/ vrátit AgentResult" style="html=1;rounded=0;endArrow=open;endSize=10;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;labelBackgroundColor=#FFFFFF;fontSize=10;" edge="1" parent="1" source="dpZ8G8vXYJGocMSPSgQd-10" target="dpZ8G8vXYJGocMSPSgQd-11">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="dpZ8G8vXYJGocMSPSgQd-28" value="Zápis přechodu: [guard] / efekt. AgentResult vzniká v efektu přechodu a ukládá se ve stavu „Ukládání výměny“. Prázdný vstup se odmítne bez uložení do paměti. Kroky: MAX_AGENT_STEPS = 8, volání nástrojů: MAX_TOOL_CALLS = 12." style="shape=note;whiteSpace=wrap;html=1;size=14;align=left;verticalAlign=top;spacing=6;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1290" y="306" width="300" height="130" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
